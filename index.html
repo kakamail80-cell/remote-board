@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>원격 실행 보드</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --txt:#1f2328; --sub:#6b7280; --pri:#2563eb; --ok:#16a34a; --bad:#dc2626; --run:#d97706; --wait:#6b7280; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif; background:var(--bg); color:var(--txt); }
+  header { background:#111827; color:#fff; padding:14px 20px; display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:18px; margin:0; }
+  header .who { margin-left:auto; font-size:13px; color:#cbd5e1; }
+  header button { background:#374151; color:#fff; border:0; border-radius:6px; padding:6px 10px; cursor:pointer; }
+  main { max-width:1100px; margin:0 auto; padding:20px; display:grid; grid-template-columns:1fr; gap:20px; }
+  @media (min-width:900px){ main { grid-template-columns: 1.1fr 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { font-size:15px; margin:0 0 12px; color:#374151; }
+  .group { margin-bottom:18px; }
+  .group h3 { font-size:14px; margin:0 0 8px; color:#111827; border-left:4px solid var(--pri); padding-left:8px; }
+  .row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line); flex-wrap:wrap; }
+  .row:last-child { border-bottom:0; }
+  .row .name { flex:1 1 200px; font-size:14px; }
+  .row .desc { color:var(--sub); font-size:12px; }
+  .row input[type=date] { padding:5px; border:1px solid var(--line); border-radius:6px; }
+  .btn { background:var(--pri); color:#fff; border:0; border-radius:6px; padding:7px 14px; cursor:pointer; font-size:13px; }
+  .btn:disabled { background:#9ca3af; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th, td { text-align:left; padding:6px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--sub); font-weight:600; }
+  .st { display:inline-block; padding:2px 8px; border-radius:999px; color:#fff; font-size:11.5px; }
+  .st.대기 { background:var(--wait);} .st.실행중 { background:var(--run);} .st.완료 { background:var(--ok);} .st.실패 { background:var(--bad);}
+  .log { max-height:80px; overflow:auto; white-space:pre-wrap; color:var(--sub); font-size:11px; }
+  #setup { max-width:520px; margin:60px auto; }
+  #setup input { width:100%; padding:9px; margin:6px 0 12px; border:1px solid var(--line); border-radius:6px; }
+  .hint { color:var(--sub); font-size:12px; }
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#111827; color:#fff; padding:10px 16px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>원격 실행 보드</h1>
+  <span class="who" id="who"></span>
+  <button onclick="openSetup()">설정</button>
+</header>
+
+<div id="setup" class="card" style="display:none">
+  <h2>연결 설정</h2>
+  <label>Apps Script 웹앱 URL</label>
+  <input id="cfgUrl" placeholder="https://script.google.com/macros/s/....../exec" value="https://script.google.com/macros/s/AKfycbxfPwqeMm7oy2bm4gUp3orBDBsTLrKA2Q9wQNC-ADs3Qp9hc2nZyT_uK7Lvmgqc4t3x/exec">
+  <label>내 토큰 (구글 시트 [사용자] 탭)</label>
+  <input id="cfgToken" placeholder="토큰">
+  <button class="btn" onclick="saveSetup()">저장하고 연결</button>
+  <p class="hint">설정은 이 브라우저에만 저장됩니다. 다른 PC·휴대폰에서는 다시 입력하세요.</p>
+</div>
+
+<main id="main" style="display:none">
+  <section class="card">
+    <h2>작업</h2>
+    <div id="jobs"></div>
+  </section>
+  <section class="card">
+    <h2>진행 상황 <span class="hint" id="lastRefresh"></span></h2>
+    <table>
+      <thead><tr><th>요청</th><th>작업</th><th>상태</th><th>결과</th></tr></thead>
+      <tbody id="queue"></tbody>
+    </table>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const LS = 'remote_board_cfg';
+let cfg = JSON.parse(localStorage.getItem(LS) || 'null');
+let timer = null;
+
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
+function openSetup(){ document.getElementById('setup').style.display='block'; document.getElementById('main').style.display='none';
+  if(cfg){ cfgUrl.value=cfg.url; cfgToken.value=cfg.token; } }
+function saveSetup(){ cfg={url:cfgUrl.value.trim(), token:cfgToken.value.trim()}; localStorage.setItem(LS, JSON.stringify(cfg)); init(); }
+
+async function api(params, body){
+  const u = new URL(cfg.url); Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v)); u.searchParams.set('token', cfg.token);
+  const opt = body ? { method:'POST', body: JSON.stringify(Object.assign({token:cfg.token}, body)), headers:{'Content-Type':'text/plain;charset=utf-8'} } : {};
+  const r = await fetch(u, opt); return r.json();
+}
+
+async function init(){
+  if(!cfg || !cfg.url || !cfg.token) return openSetup();
+  try{
+    const res = await api({action:'jobs'});
+    if(!res.ok) { toast(res.error); return openSetup(); }
+    document.getElementById('who').textContent = res.user + ' 님';
+    document.getElementById('setup').style.display='none'; document.getElementById('main').style.display='grid';
+    renderJobs(res.jobs); refreshQueue();
+    clearInterval(timer); timer = setInterval(refreshQueue, 10000);
+  }catch(e){ toast('연결 실패: '+e.message); openSetup(); }
+}
+
+function renderJobs(jobs){
+  const groups = {}; jobs.forEach(j => (groups[j['주제']] = groups[j['주제']] || []).push(j));
+  const el = document.getElementById('jobs'); el.innerHTML = '';
+  for(const [g, list] of Object.entries(groups)){
+    const d = document.createElement('div'); d.className='group'; d.innerHTML = `<h3>${g}</h3>`;
+    list.forEach(j => {
+      const row = document.createElement('div'); row.className='row';
+      let paramHtml = '';
+      if(j['파라미터']==='기간'){ paramHtml = `<input type="date" data-k="start"> ~ <input type="date" data-k="end">`; }
+      else if(j['파라미터']==='텍스트'){ paramHtml = `<input type="text" data-k="text" placeholder="${j['설명']||''}" style="padding:5px;border:1px solid #e3e6ea;border-radius:6px">`; }
+      row.innerHTML = `<div class="name">${j['버튼이름']}<div class="desc">${j['설명']||''}</div></div>${paramHtml}<button class="btn">적용</button>`;
+      row.querySelector('button').onclick = () => run(j, row);
+      d.appendChild(row);
+    });
+    el.appendChild(d);
+  }
+}
+
+async function run(job, row){
+  const params = {}; row.querySelectorAll('input').forEach(i => params[i.dataset.k] = i.value);
+  if(job['파라미터']==='기간' && (!params.start || !params.end)) return toast('시작일과 종료일을 선택하세요');
+  if(!confirm(`'${job['버튼이름']}' 을(를) 실행할까요?`)) return;
+  const b = row.querySelector('button'); b.disabled = true;
+  try{
+    const res = await api({}, {action:'enqueue', code: job['작업코드'], params});
+    toast(res.ok ? `요청 등록 (${res.id}) — PC 러너가 곧 실행합니다` : ('실패: '+res.error));
+    refreshQueue();
+  }catch(e){ toast('요청 실패: '+e.message); }
+  b.disabled = false;
+}
+
+async function refreshQueue(){
+  try{
+    const res = await api({action:'queue', n:30});
+    if(!res.ok) return;
+    const tb = document.getElementById('queue'); tb.innerHTML = '';
+    res.queue.forEach(q => {
+      const links = String(q['결과링크']||'').split('\n').filter(Boolean).map((u,i)=>`<a href="${u}" target="_blank">파일${i+1}</a>`).join(' ');
+      const files = String(q['결과파일']||'').split('\n').filter(Boolean).join('<br>');
+      const p = (()=>{ try{ const o=JSON.parse(q['파라미터']||'{}'); return Object.values(o).filter(Boolean).join('~'); }catch(_){return '';} })();
+      tb.insertAdjacentHTML('beforeend', `<tr>
+        <td>${String(q['요청시각']).slice(5,16)}<br><span class="hint">${q['요청자']}</span></td>
+        <td>${q['버튼이름']}${p?`<br><span class="hint">${p}</span>`:''}</td>
+        <td><span class="st ${q['상태']}">${q['상태']}</span>${q['종료시각']?`<br><span class="hint">${String(q['종료시각']).slice(11,16)}</span>`:''}</td>
+        <td>${links || files || ''}${q['로그']?`<div class="log">${String(q['로그']).slice(-400)}</div>`:''}</td></tr>`);
+    });
+    document.getElementById('lastRefresh').textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신';
+  }catch(_){}
+}
+init();
+</script>
+</body>
+</html>
