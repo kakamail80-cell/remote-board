@@ -12,25 +12,30 @@
   header h1 { font-size:18px; margin:0; }
   header .who { margin-left:auto; font-size:13px; color:#cbd5e1; }
   header button { background:#374151; color:#fff; border:0; border-radius:6px; padding:6px 10px; cursor:pointer; }
-  main { max-width:1100px; margin:0 auto; padding:20px; display:grid; grid-template-columns:1fr; gap:20px; }
-  @media (min-width:900px){ main { grid-template-columns: 1.1fr 1fr; } }
+  main { max-width:960px; margin:0 auto; padding:20px; display:grid; grid-template-columns:1fr; gap:20px; }
+  @media (min-width:1400px){ main { max-width:1500px; grid-template-columns: 420px 1fr; align-items:start; } }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
   .card h2 { font-size:15px; margin:0 0 12px; color:#374151; }
   .group { margin-bottom:18px; }
   .group h3 { font-size:14px; margin:0 0 8px; color:#111827; border-left:4px solid var(--pri); padding-left:8px; }
   .row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line); flex-wrap:wrap; }
   .row:last-child { border-bottom:0; }
-  .row .name { flex:1 1 200px; font-size:14px; }
+  .row .name { flex:1 1 160px; font-size:14px; }
   .row .desc { color:var(--sub); font-size:12px; }
-  .row input[type=date] { padding:5px; border:1px solid var(--line); border-radius:6px; }
+  .row .ctl { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:auto; }
+  .row input[type=date], .row input[type=text] { padding:5px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; }
+  .row input[type=date] { width:135px; }
   .btn { background:var(--pri); color:#fff; border:0; border-radius:6px; padding:7px 14px; cursor:pointer; font-size:13px; }
   .btn:disabled { background:#9ca3af; cursor:not-allowed; }
   table { width:100%; border-collapse:collapse; font-size:12.5px; }
   th, td { text-align:left; padding:6px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { color:var(--sub); font-weight:600; }
+  th { color:var(--sub); font-weight:600; white-space:nowrap; }
+  td.t, td.j, td.s { white-space:nowrap; }
+  td.r { width:100%; word-break:break-all; overflow-wrap:anywhere; }
   .st { display:inline-block; padding:2px 8px; border-radius:999px; color:#fff; font-size:11.5px; }
-  .st.대기 { background:var(--wait);} .st.실행중 { background:var(--run);} .st.완료 { background:var(--ok);} .st.실패 { background:var(--bad);}
-  .log { max-height:80px; overflow:auto; white-space:pre-wrap; color:var(--sub); font-size:11px; }
+  .st { background:#9ca3af; }
+  .st.대기 { background:var(--wait);} .st.실행중 { background:var(--run);} .st.완료 { background:var(--ok);} .st.실패 { background:var(--bad);} .st.취소 { background:#cbd5e1; color:#374151; }
+  .log { max-height:96px; overflow-y:auto; overflow-x:hidden; white-space:pre-wrap; word-break:break-all; color:var(--sub); font-size:11px; margin-top:4px; }
   #setup { max-width:520px; margin:60px auto; }
   #setup input { width:100%; padding:9px; margin:6px 0 12px; border:1px solid var(--line); border-radius:6px; }
   .hint { color:var(--sub); font-size:12px; }
@@ -107,8 +112,8 @@ function renderJobs(jobs){
       const row = document.createElement('div'); row.className='row';
       let paramHtml = '';
       if(j['파라미터']==='기간'){ paramHtml = `<input type="date" data-k="start"> ~ <input type="date" data-k="end">`; }
-      else if(j['파라미터']==='텍스트'){ paramHtml = `<input type="text" data-k="text" placeholder="${j['설명']||''}" style="padding:5px;border:1px solid #e3e6ea;border-radius:6px">`; }
-      row.innerHTML = `<div class="name">${j['버튼이름']}<div class="desc">${j['설명']||''}</div></div>${paramHtml}<button class="btn">적용</button>`;
+      else if(j['파라미터']==='텍스트'){ paramHtml = `<input type="text" data-k="text" placeholder="${j['설명']||''}">`; }
+      row.innerHTML = `<div class="name">${j['버튼이름']}<div class="desc">${j['설명']||''}</div></div><div class="ctl">${paramHtml}<button class="btn">적용</button></div>`;
       row.querySelector('button').onclick = () => run(j, row);
       d.appendChild(row);
     });
@@ -129,6 +134,16 @@ async function run(job, row){
   b.disabled = false;
 }
 
+// 시트 날짜는 UTC ISO 문자열로 오므로 한국 시간으로 표시
+function fmt(v, withDate){
+  if(!v) return '';
+  const d = new Date(v); if(isNaN(d)) return String(v).slice(5,16);
+  const p = n => String(n).padStart(2,'0');
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  return withDate ? `${p(d.getMonth()+1)}-${p(d.getDate())} ${hm}` : hm;
+}
+function esc(s){ return String(s??'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
 async function refreshQueue(){
   try{
     const res = await api({action:'queue', n:30});
@@ -139,10 +154,10 @@ async function refreshQueue(){
       const files = String(q['결과파일']||'').split('\n').filter(Boolean).join('<br>');
       const p = (()=>{ try{ const o=JSON.parse(q['파라미터']||'{}'); return Object.values(o).filter(Boolean).join('~'); }catch(_){return '';} })();
       tb.insertAdjacentHTML('beforeend', `<tr>
-        <td>${String(q['요청시각']).slice(5,16)}<br><span class="hint">${q['요청자']}</span></td>
-        <td>${q['버튼이름']}${p?`<br><span class="hint">${p}</span>`:''}</td>
-        <td><span class="st ${q['상태']}">${q['상태']}</span>${q['종료시각']?`<br><span class="hint">${String(q['종료시각']).slice(11,16)}</span>`:''}</td>
-        <td>${links || files || ''}${q['로그']?`<div class="log">${String(q['로그']).slice(-400)}</div>`:''}</td></tr>`);
+        <td class="t">${fmt(q['요청시각'], true)}<br><span class="hint">${esc(q['요청자'])}</span></td>
+        <td class="j">${esc(q['버튼이름'])}${p?`<br><span class="hint">${esc(p)}</span>`:''}</td>
+        <td class="s"><span class="st ${esc(q['상태'])}">${esc(q['상태'])}</span>${q['종료시각']?`<br><span class="hint">${fmt(q['종료시각'])}</span>`:''}</td>
+        <td class="r">${links || files || ''}${q['로그']?`<div class="log">${esc(String(q['로그']).slice(-600))}</div>`:''}</td></tr>`);
     });
     document.getElementById('lastRefresh').textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신';
   }catch(_){}
