@@ -56,11 +56,15 @@
 
   /* 좁은 화면: 한 칸으로, 진행 상황은 각 작업 바로 아래 줄에 */
   @media (max-width:900px){
-    #board { grid-template-columns: 1fr; }
+    #board { grid-template-columns: 1fr; padding:12px; }
     .R.top, .R.gh, .R.bot { display:none; }
-    .L.job { border-bottom:0; padding-bottom:2px; }
-    .R.job { padding-top:0; min-height:0; }
+    .R .job { min-height:0; padding:0 0 8px; border-bottom:1px dashed var(--line); }
+    .R .job:empty { display:none; }
+    .L .job { min-height:44px; }
+    .L:has(+ .R .job:not(:empty)) .job { border-bottom:0; padding-bottom:4px; }
     .L .ctl { flex-wrap:wrap; white-space:normal; }
+    header { padding:12px 14px; gap:8px; }
+    header .who { display:none; }
   }
 </style>
 </head>
