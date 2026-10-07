@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111827">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="원격 실행">
 <title>원격 실행 보드</title>
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --txt:#1f2328; --sub:#6b7280; --pri:#2563eb; --ok:#16a34a; --bad:#dc2626; --run:#d97706; --wait:#6b7280; }
@@ -10,7 +14,10 @@
   body { margin:0; font-family:"Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif; background:var(--bg); color:var(--txt); }
   header { background:#111827; color:#fff; padding:14px 20px; display:flex; align-items:center; gap:14px; }
   header h1 { font-size:18px; margin:0; }
-  header .who { margin-left:auto; font-size:13px; color:#cbd5e1; }
+  header .runner { margin-left:auto; font-size:12.5px; padding:3px 10px; border-radius:999px; background:#374151; color:#e5e7eb; }
+  header .runner.on { background:#065f46; color:#d1fae5; }
+  header .runner.off { background:#7f1d1d; color:#fee2e2; }
+  header .who { font-size:13px; color:#cbd5e1; }
   header button { background:#374151; color:#fff; border:0; border-radius:6px; padding:6px 10px; cursor:pointer; }
 
   /* 왼쪽(작업)과 오른쪽(진행 상황)을 한 격자로 묶어 줄 높이를 맞춘다 */
@@ -60,6 +67,7 @@
 <body>
 <header>
   <h1>원격 실행 보드</h1>
+  <span class="runner" id="runner"></span>
   <span class="who" id="who"></span>
   <button onclick="openSetup()">설정</button>
 </header>
@@ -100,6 +108,7 @@ async function init(){
     const res = await api({action:'jobs'});
     if(!res.ok) { toast(res.error); return openSetup(); }
     document.getElementById('who').textContent = res.user + ' 님';
+    showRunner(res.runner_seen, res.runner_busy);
     document.getElementById('setup').style.display='none'; document.getElementById('board').style.display='grid';
     renderJobs(res.jobs); refreshStatus();
     clearInterval(timer); timer = setInterval(refreshStatus, 10000);
@@ -145,6 +154,15 @@ async function run(job, cell){
   btn.disabled = false;
 }
 
+// 러너 생존 표시: 60초 이내 접속이면 켜짐
+function showRunner(seen, busy){
+  const el = document.getElementById('runner'); if(!el) return;
+  const ago = seen ? (Date.now() - Number(seen)) / 1000 : Infinity;
+  if(busy){ el.className = 'runner on'; el.textContent = '● PC 러너 작업 실행 중'; }
+  else if(ago < 60){ el.className = 'runner on'; el.textContent = '● PC 러너 켜짐'; }
+  else { el.className = 'runner off'; el.textContent = seen ? `○ PC 러너 꺼짐 · 마지막 ${fmt(new Date(Number(seen)).toISOString())}` : '○ PC 러너 꺼짐'; }
+}
+
 // 시트 날짜는 UTC ISO 문자열로 오므로 한국 시간 HH:MM 으로 표시
 function fmt(v){
   if(!v) return '';
@@ -158,6 +176,7 @@ async function refreshStatus(){
   try{
     const res = await api({action:'queue', n:50});
     if(!res.ok) return;
+    showRunner(res.runner_seen, res.runner_busy);
     const latest = {};
     res.queue.forEach(q => { if(mine.includes(String(q['ID'])) && !latest[q['작업코드']]) latest[q['작업코드']] = q; });   // queue 는 최신순
     document.querySelectorAll('.stat').forEach(el => {
