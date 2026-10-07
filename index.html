@@ -21,36 +21,36 @@
   header button { background:#374151; color:#fff; border:0; border-radius:6px; padding:6px 10px; cursor:pointer; }
 
   /* 왼쪽(작업)과 오른쪽(진행 상황)을 한 격자로 묶어 줄 높이를 맞춘다 */
-  #board { max-width:1200px; margin:0 auto; padding:20px; display:grid; grid-template-columns: 470px minmax(0,1fr); column-gap:20px; }
-  .L, .R { background:var(--card); border-left:1px solid var(--line); border-right:1px solid var(--line); padding:0 16px; min-width:0; }
-  .top { border-top:1px solid var(--line); border-radius:10px 10px 0 0; padding-top:16px; }
-  .bot { border-bottom:1px solid var(--line); border-radius:0 0 10px 10px; height:16px; }
-  .top h2 { font-size:15px; margin:0 0 12px; color:#374151; }
-  .gh h3 { font-size:14px; margin:10px 0 4px; color:#111827; border-left:4px solid var(--pri); padding-left:8px; }
+  #board { max-width:1100px; margin:0 auto; padding:16px; display:grid; grid-template-columns: 420px minmax(0,1fr); column-gap:14px; }
+  .L, .R { background:var(--card); border-left:1px solid var(--line); border-right:1px solid var(--line); padding:0 14px; min-width:0; }
+  .top { border-top:1px solid var(--line); border-radius:10px 10px 0 0; padding-top:12px; }
+  .bot { border-bottom:1px solid var(--line); border-radius:0 0 10px 10px; height:12px; }
+  .top h2 { font-size:14px; margin:0 0 6px; color:#374151; }
+  .gh h3 { font-size:13px; margin:8px 0 2px; color:#111827; border-left:3px solid var(--pri); padding-left:7px; }
   .R.gh h3 { visibility:hidden; }
-  .job { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line); min-height:50px; }
+  .job { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px dashed var(--line); min-height:38px; }
   .lastrow .job { border-bottom:0; }
-  .L .name { flex:1; font-size:14px; min-width:0; }
-  .L .desc { color:var(--sub); font-size:12px; }
+  .L .name { flex:1; font-size:13.5px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .L .desc { color:var(--sub); font-size:11.5px; display:inline; margin-left:6px; }
   .L .ctl { display:flex; align-items:center; gap:6px; white-space:nowrap; }
   .L .job.haspar { flex-wrap:wrap; }
   .L .job.haspar .name { flex:1 1 100%; }
   .L .job.haspar .ctl { margin-left:auto; }
   .L input[type=text] { padding:5px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; width:160px; }
   .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
-  .seg button { background:#fff; color:var(--txt); border:0; padding:7px 14px; font-size:13px; cursor:pointer; }
+  .seg button { background:#fff; color:var(--txt); border:0; padding:5px 10px; font-size:12.5px; cursor:pointer; }
   .seg button + button { border-left:1px solid var(--line); }
   .seg button.on { background:#e0e7ff; color:#1e3a8a; font-weight:600; }
-  .btn { background:var(--pri); color:#fff; border:0; border-radius:6px; padding:7px 14px; cursor:pointer; font-size:13px; }
+  .btn { background:var(--pri); color:#fff; border:0; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12.5px; white-space:nowrap; }
   .btn:disabled { background:#9ca3af; cursor:not-allowed; }
 
-  .R .job { font-size:13px; color:var(--sub); white-space:nowrap; overflow:hidden; }
+  .R .job { font-size:12.5px; color:var(--sub); white-space:nowrap; overflow:hidden; gap:6px; }
   .R .time { color:var(--txt); }
   .R .files { display:flex; gap:10px; overflow:hidden; min-width:0; }
-  .R .files a { color:var(--pri); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px; }
+  .R .files a { color:var(--pri); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:220px; }
   .R .files a:hover { text-decoration:underline; }
   .R .files span { overflow:hidden; text-overflow:ellipsis; }
-  .st { display:inline-block; padding:2px 8px; border-radius:999px; color:#fff; font-size:11.5px; background:#9ca3af; }
+  .st { display:inline-block; padding:1px 7px; border-radius:999px; color:#fff; font-size:11px; background:#9ca3af; }
   .st.대기 { background:var(--wait);} .st.실행중 { background:var(--run);} .st.완료 { background:var(--ok);} .st.실패 { background:var(--bad);} .st.취소 { background:#cbd5e1; color:#374151; }
 
   #setup { max-width:520px; margin:60px auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
@@ -60,17 +60,26 @@
   .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#111827; color:#fff; padding:10px 16px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; }
   .toast.show { opacity:1; }
 
-  /* 좁은 화면: 한 칸으로, 진행 상황은 각 작업 바로 아래 줄에 */
-  @media (max-width:900px){
-    #board { grid-template-columns: 1fr; padding:12px; }
-    .R.top, .R.gh, .R.bot { display:none; }
-    .R .job { min-height:0; padding:0 0 8px; border-bottom:1px dashed var(--line); }
-    .R .job:empty { display:none; }
-    .L .job { min-height:44px; }
-    .L:has(+ .R .job:not(:empty)) .job { border-bottom:0; padding-bottom:4px; }
-    .L .ctl { flex-wrap:wrap; white-space:normal; }
-    header { padding:12px 14px; gap:8px; }
+  /* 좁은 화면(휴대폰): PC 와 같은 두 칸 배치를 유지하고 크기만 줄인다 */
+  @media (max-width:700px){
+    #board { grid-template-columns: minmax(0,1.35fr) minmax(0,1fr); padding:8px; column-gap:8px; }
+    .L, .R { padding:0 8px; }
+    .top { padding-top:10px; }
+    .top h2 { font-size:13px; }
+    .gh h3 { font-size:12px; margin:6px 0 2px; }
+    .job { min-height:36px; gap:6px; padding:3px 0; }
+    .L .name { font-size:12.5px; }
+    .L .desc { display:none; }
+    .btn { padding:5px 9px; font-size:12px; }
+    .R .job { font-size:11.5px; gap:4px; }
+    .R .req { display:none; }                /* 휴대폰: 요청시각은 숨기고 상태·완료시각·파일만 */
+    .R .files a, .R .files span { max-width:90px; }
+    .st { padding:1px 5px; font-size:10px; }
+    header { padding:10px 12px; gap:8px; }
+    header h1 { font-size:16px; }
     header .who { display:none; }
+    header .runner { font-size:11px; padding:2px 8px; }
+    #lastRefresh { display:none; }
   }
 </style>
 </head>
@@ -213,7 +222,7 @@ async function refreshStatus(){
         : `<span title="${esc(n)} (드라이브 동기화 중)">${esc(n)}</span>`).join('');
       const day = (() => { const d = new Date(q['요청시각']); if(isNaN(d)) return ''; const t = new Date(); return (d.toDateString() === t.toDateString()) ? '' : `${d.getMonth()+1}/${d.getDate()} `; })();
       const range = (() => { try { const o = JSON.parse(q['파라미터']||'{}'); return o.range === 'week' ? ' 일주일' : (o.range === 'today' ? ' 오늘' : ''); } catch(_) { return ''; } })();
-      el.innerHTML = `<span class="time">${day}${fmt(q['요청시각'])}</span>${range} <span class="st ${esc(st)}">${esc(st)}</span>${done?` <span class="time">${done}</span>`:''}${files?` <span class="files">${files}</span>`:''}`;
+      el.innerHTML = `<span class="time req">${day}${fmt(q['요청시각'])}${range}</span> <span class="st ${esc(st)}">${esc(st)}</span>${done?` <span class="time">${done}</span>`:''}${files?` <span class="files">${files}</span>`:''}`;
     });
     const lr = document.getElementById('lastRefresh'); if(lr) lr.textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신';
   }catch(_){}
