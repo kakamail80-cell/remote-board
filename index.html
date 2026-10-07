@@ -33,8 +33,14 @@
   .L .name { flex:1; font-size:14px; min-width:0; }
   .L .desc { color:var(--sub); font-size:12px; }
   .L .ctl { display:flex; align-items:center; gap:6px; white-space:nowrap; }
-  .L input[type=date], .L input[type=text] { padding:5px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; }
-  .L input[type=date] { width:128px; }
+  .L .job.haspar { flex-wrap:wrap; }
+  .L .job.haspar .name { flex:1 1 100%; }
+  .L .job.haspar .ctl { margin-left:auto; }
+  .L input[type=text] { padding:5px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; width:160px; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .seg button { background:#fff; color:var(--txt); border:0; padding:7px 14px; font-size:13px; cursor:pointer; }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button.on { background:#e0e7ff; color:#1e3a8a; font-weight:600; }
   .btn { background:var(--pri); color:#fff; border:0; border-radius:6px; padding:7px 14px; cursor:pointer; font-size:13px; }
   .btn:disabled { background:#9ca3af; cursor:not-allowed; }
 
@@ -131,13 +137,16 @@ function renderJobs(jobs){
     list.forEach((j, i) => {
       const last = (gi === entries.length-1 && i === list.length-1) ? ' lastrow' : '';
       let paramHtml = '';
-      if(j['파라미터']==='기간'){ paramHtml = `<input type="date" data-k="start"> ~ <input type="date" data-k="end">`; }
+      const isRange = j['파라미터']==='기간';
+      if(isRange){ paramHtml = `<span class="seg" data-k="range"><button type="button" data-v="today" class="on">오늘</button><button type="button" data-v="week">일주일</button></span>`; }
       else if(j['파라미터']==='텍스트'){ paramHtml = `<input type="text" data-k="text" placeholder="${esc(j['설명']||'')}">`; }
       const L = document.createElement('div'); L.className = 'L' + last;
-      L.innerHTML = `<div class="job"><div class="name">${esc(j['버튼이름'])}${j['설명']?`<div class="desc">${esc(j['설명'])}</div>`:''}</div><div class="ctl">${paramHtml}<button class="btn">적용</button></div></div>`;
+      const desc = (!isRange && j['설명']) ? `<div class="desc">${esc(j['설명'])}</div>` : '';
+      L.innerHTML = `<div class="job${paramHtml?' haspar':''}"><div class="name">${esc(j['버튼이름'])}${desc}</div><div class="ctl">${paramHtml}<button class="btn">적용</button></div></div>`;
+      L.querySelectorAll('.seg button').forEach(b => b.onclick = () => { b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
       const R = document.createElement('div'); R.className = 'R' + last;
       R.innerHTML = `<div class="job stat" data-code="${esc(j['작업코드'])}"></div>`;
-      L.querySelector('button').onclick = () => run(j, L);
+      L.querySelector('button.btn').onclick = () => run(j, L);
       b.appendChild(L); b.appendChild(R);
     });
   });
@@ -146,8 +155,16 @@ function renderJobs(jobs){
 
 async function run(job, cell){
   const params = {}; cell.querySelectorAll('input').forEach(i => params[i.dataset.k] = i.value);
-  if(job['파라미터']==='기간' && (!params.start || !params.end)) return toast('시작일과 종료일을 선택하세요');
-  if(!confirm(`'${job['버튼이름']}' 을(를) 실행할까요?`)) return;
+  let label = '';
+  const seg = cell.querySelector('.seg button.on');
+  if(seg){
+    const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const end = new Date(), start = new Date();
+    if(seg.dataset.v === 'week') start.setDate(start.getDate() - 6);     // 오늘 포함 최근 7일
+    params.start = ymd(start); params.end = ymd(end); params.range = seg.dataset.v;
+    label = seg.dataset.v === 'week' ? ` (일주일: ${params.start} ~ ${params.end})` : ` (오늘: ${params.end})`;
+  }
+  if(!confirm(`'${job['버튼이름']}'${label} 을(를) 실행할까요?`)) return;
   const btn = cell.querySelector('button'); btn.disabled = true;
   try{
     const res = await api({}, {action:'enqueue', code: job['작업코드'], params});
@@ -195,7 +212,8 @@ async function refreshStatus(){
         ? `<a href="${esc(links[i])}" target="_blank" title="${esc(n)}">${esc(n)}</a>`
         : `<span title="${esc(n)} (드라이브 동기화 중)">${esc(n)}</span>`).join('');
       const day = (() => { const d = new Date(q['요청시각']); if(isNaN(d)) return ''; const t = new Date(); return (d.toDateString() === t.toDateString()) ? '' : `${d.getMonth()+1}/${d.getDate()} `; })();
-      el.innerHTML = `<span class="time">${day}${fmt(q['요청시각'])}</span> <span class="st ${esc(st)}">${esc(st)}</span>${done?` <span class="time">${done}</span>`:''}${files?` <span class="files">${files}</span>`:''}`;
+      const range = (() => { try { const o = JSON.parse(q['파라미터']||'{}'); return o.range === 'week' ? ' 일주일' : (o.range === 'today' ? ' 오늘' : ''); } catch(_) { return ''; } })();
+      el.innerHTML = `<span class="time">${day}${fmt(q['요청시각'])}</span>${range} <span class="st ${esc(st)}">${esc(st)}</span>${done?` <span class="time">${done}</span>`:''}${files?` <span class="files">${files}</span>`:''}`;
     });
     const lr = document.getElementById('lastRefresh'); if(lr) lr.textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신';
   }catch(_){}
