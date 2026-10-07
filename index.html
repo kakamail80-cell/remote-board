@@ -67,6 +67,7 @@
   .chip .x:hover { background:var(--bad); }
   .chip.실행중 .x, .chip.중지요청 .x { background:var(--bad); }
   .chip .t { display:block; color:var(--sub); font-size:10px; line-height:12px; margin-top:2px; }
+  .uperr { color:var(--bad); font-size:11px; white-space:normal; word-break:break-all; }
   .chip.중지요청 .st::after { content:' → 중지 중'; }
 
   #setup { max-width:520px; margin:60px auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
@@ -223,6 +224,7 @@ async function run(job, cell){
 // 적용 → 휴대폰 사진첩(또는 카메라)에서 사진 선택 → 저장 이름 입력 → 긴 변 2000px 로 줄여 업로드
 // → 드라이브 image 폴더에 저장되고 PC 러너가 \\wondercompany\...\0-주문서 만들기 (클로드)\image 로 옮긴다
 const PHOTO_MAX_EDGE = 2000, PHOTO_QUALITY = 0.9;
+const photoErr = {};    // 작업코드 → 마지막 업로드 실패 메시지 (다음에 다시 올릴 때까지 화면에 남김)
 const uploading = {};   // 작업코드 → true (업로드 중에는 상태칸을 갱신으로 덮지 않음)
 
 function pickPhoto(job, cell, statCell){
@@ -238,15 +240,15 @@ function pickPhoto(job, cell, statCell){
     name = name.replace(/[\\/:*?"<>|]/g, '').trim();
     if(!name){ toast('사진 이름을 입력해야 합니다'); return; }
     const btn = cell.querySelector('button.btn'); btn.disabled = true;
-    const stat = statCell.querySelector('.stat'); uploading[job['작업코드']] = true;
+    const stat = statCell.querySelector('.stat'); uploading[job['작업코드']] = true; delete photoErr[job['작업코드']];
     try{
       stat.innerHTML = `<span class="st 실행중">업로드 중</span> <span class="files"><span>${esc(name)}</span></span>`;
       const { blob, mime } = await shrinkImage(file);
       const data = await toBase64(blob);
       const res = await api({}, { action:'upload', code: job['작업코드'], name, mime, data });
       if(res.ok){ mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); toast(`사진 업로드 완료 — PC 러너가 image 폴더에 저장합니다 (${res.name})`); }
-      else { toast('실패: ' + res.error); stat.innerHTML = `<span class="st 실패">실패</span> <span class="files"><span>${esc(res.error||'')}</span></span>`; }
-    }catch(e){ toast('업로드 실패: ' + e.message); stat.innerHTML = `<span class="st 실패">실패</span>`; }
+      else { toast('실패: ' + res.error); photoErr[job['작업코드']] = res.error || '알 수 없는 오류'; }
+    }catch(e){ toast('업로드 실패: ' + e.message); photoErr[job['작업코드']] = '전송 실패: ' + e.message; }
     delete uploading[job['작업코드']]; btn.disabled = false;
     refreshStatus();
   };
@@ -342,9 +344,9 @@ async function refreshStatus(){
     res.queue.slice().reverse().forEach(q => { if(q['상태']==='취소') return; (byCode[q['작업코드']] = byCode[q['작업코드']] || []).push(q); });
     document.querySelectorAll('.stat').forEach(el => {
       if(uploading[el.dataset.code]) return;
-      const list = byCode[el.dataset.code];
-      if(!list){ el.innerHTML = ''; return; }
-      el.innerHTML = list.map(chipHtml).join('');
+      const list = byCode[el.dataset.code] || [];
+      const err = photoErr[el.dataset.code];
+      el.innerHTML = list.map(chipHtml).join('') + (err ? `<span class="chip"><span class="st 실패">업로드 실패</span><span class="uperr">${esc(err)}</span></span>` : '');
       el.querySelectorAll('.x').forEach(x => x.onclick = () => cancelJob(x.dataset.id, x.dataset.st, el.dataset.code));
     });
     document.querySelectorAll('.lastRefresh').forEach(lr => lr.textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신');
