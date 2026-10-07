@@ -21,7 +21,12 @@
   header button { background:#374151; color:#fff; border:0; border-radius:6px; padding:6px 10px; cursor:pointer; }
 
   /* 왼쪽(작업)과 오른쪽(진행 상황)을 한 격자로 묶어 줄 높이를 맞춘다 */
-  #board { max-width:1100px; margin:0 auto; padding:16px; display:grid; grid-template-columns: 420px minmax(0,1fr); column-gap:14px; }
+  #board { max-width:1100px; margin:0 auto; padding:16px; }
+  /* 구역(주문/재고, 상품 …)마다 격자 하나: 왼쪽 = 검은 제목 띠 + 작업, 오른쪽 = 진행 상황 */
+  .sec { display:grid; grid-template-columns: 420px minmax(0,1fr); column-gap:14px; margin-bottom:44px; }
+  .L.head { background:#111827; color:#fff; border:1px solid #111827; border-radius:10px 10px 0 0; padding:10px 18px; display:flex; align-items:center; }
+  .L.head h2 { font-size:26px; margin:0; font-weight:700; letter-spacing:1px; }
+  .L.pad, .R.pad { height:6px; }
   .L, .R { background:var(--card); border-left:1px solid var(--line); border-right:1px solid var(--line); padding:0 14px; min-width:0; }
   .top { border-top:1px solid var(--line); border-radius:10px 10px 0 0; padding-top:12px; }
   .bot { border-bottom:1px solid var(--line); border-radius:0 0 10px 10px; height:12px; }
@@ -73,7 +78,10 @@
 
   /* 좁은 화면(휴대폰): PC 와 같은 두 칸 배치를 유지하고 크기만 줄인다 */
   @media (max-width:700px){
-    #board { grid-template-columns: minmax(0,1.35fr) minmax(0,1fr); padding:8px; column-gap:8px; }
+    #board { padding:8px; }
+    .sec { grid-template-columns: minmax(0,1.35fr) minmax(0,1fr); column-gap:8px; margin-bottom:28px; }
+    .L.head { padding:8px 10px; }
+    .L.head h2 { font-size:19px; letter-spacing:0; }
     .L, .R { padding:0 8px; }
     .top { padding-top:10px; }
     .top h2 { font-size:13px; }
@@ -91,7 +99,7 @@
     header h1 { font-size:16px; }
     header .who { display:none; }
     header .runner { font-size:11px; padding:2px 8px; }
-    #lastRefresh { display:none; }
+    .lastRefresh { display:none; }
   }
 </style>
 </head>
@@ -141,7 +149,7 @@ async function init(){
     if(!res.ok) { toast(res.error); return openSetup(); }
     document.getElementById('who').textContent = res.user + ' 님';
     showRunner(res.runner_seen, res.runner_busy);
-    document.getElementById('setup').style.display='none'; document.getElementById('board').style.display='grid';
+    document.getElementById('setup').style.display='none'; document.getElementById('board').style.display='block';
     renderJobs(res.jobs); refreshStatus();
     clearInterval(timer); timer = setInterval(refreshStatus, 10000);
   }catch(e){ toast('연결 실패: '+e.message); openSetup(); }
@@ -149,30 +157,44 @@ async function init(){
 
 function esc(s){ return String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
+// 구역 구성: 시트의 [주제] 를 큰 구역으로 묶는다. 목록에 없는 주제는 첫 구역으로 들어간다
+const SECTIONS = [
+  { title:'주문 / 재고', topics:null },          // null = 다른 구역에 속하지 않은 주제 전부
+  { title:'상품',        topics:['상품'] },
+];
+
 function renderJobs(jobs){
-  const groups = {}; jobs.forEach(j => (groups[j['주제']] = groups[j['주제']] || []).push(j));
   const b = document.getElementById('board'); b.innerHTML = '';
-  b.insertAdjacentHTML('beforeend', `<div class="L top"><h2>작업</h2></div><div class="R top"><h2>진행 상황 <span class="hint" id="lastRefresh"></span></h2></div>`);
-  const entries = Object.entries(groups);
-  entries.forEach(([g, list], gi) => {
-    b.insertAdjacentHTML('beforeend', `<div class="L gh"><h3>${esc(g)}</h3></div><div class="R gh"><h3>.</h3></div>`);
-    list.forEach((j, i) => {
-      const last = (gi === entries.length-1 && i === list.length-1) ? ' lastrow' : '';
-      let paramHtml = '';
-      const isRange = j['파라미터']==='기간', isPhoto = j['파라미터']==='사진';
-      if(isRange){ paramHtml = `<span class="seg" data-k="range"><button type="button" data-v="today" class="on">오늘</button><button type="button" data-v="week">일주일</button></span>`; }
-      else if(j['파라미터']==='텍스트'){ paramHtml = `<input type="text" data-k="text" placeholder="${esc(j['설명']||'')}">`; }
-      const L = document.createElement('div'); L.className = 'L' + last;
-      const desc = (!isRange && j['설명']) ? `<div class="desc">${esc(j['설명'])}</div>` : '';
-      L.innerHTML = `<div class="job${paramHtml?' haspar':''}"><div class="name">${esc(j['버튼이름'])}${desc}</div><div class="ctl">${paramHtml}<button class="btn">적용</button></div></div>`;
-      L.querySelectorAll('.seg button').forEach(b => b.onclick = () => { b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
-      const R = document.createElement('div'); R.className = 'R' + last;
-      R.innerHTML = `<div class="job stat" data-code="${esc(j['작업코드'])}"></div>`;
-      L.querySelector('button.btn').onclick = () => isPhoto ? pickPhoto(j, L, R) : run(j, L);
-      b.appendChild(L); b.appendChild(R);
+  const claimed = new Set(SECTIONS.flatMap(s => s.topics || []));
+  SECTIONS.forEach(sec => {
+    const mineJobs = jobs.filter(j => sec.topics ? sec.topics.includes(j['주제']) : !claimed.has(j['주제']));
+    if(!mineJobs.length) return;
+    const groups = {}; mineJobs.forEach(j => (groups[j['주제']] = groups[j['주제']] || []).push(j));
+    const box = document.createElement('section'); box.className = 'sec'; b.appendChild(box);
+    box.insertAdjacentHTML('beforeend', `<div class="L head"><h2>${esc(sec.title)}</h2></div><div class="R top"><h2>진행 상황 <span class="hint lastRefresh"></span></h2></div>`);
+    const entries = Object.entries(groups);
+    entries.forEach(([g, list], gi) => {
+      // 주제 이름이 구역 제목과 같으면(예: 상품) 소제목은 생략
+      if(g === sec.title) box.insertAdjacentHTML('beforeend', `<div class="L pad"></div><div class="R pad"></div>`);
+      else box.insertAdjacentHTML('beforeend', `<div class="L gh"><h3>${esc(g)}</h3></div><div class="R gh"><h3>.</h3></div>`);
+      list.forEach((j, i) => {
+        const last = (gi === entries.length-1 && i === list.length-1) ? ' lastrow' : '';
+        let paramHtml = '';
+        const isRange = j['파라미터']==='기간', isPhoto = j['파라미터']==='사진';
+        if(isRange){ paramHtml = `<span class="seg" data-k="range"><button type="button" data-v="today" class="on">오늘</button><button type="button" data-v="week">일주일</button></span>`; }
+        else if(j['파라미터']==='텍스트'){ paramHtml = `<input type="text" data-k="text" placeholder="${esc(j['설명']||'')}">`; }
+        const L = document.createElement('div'); L.className = 'L' + last;
+        const desc = (!isRange && j['설명']) ? `<div class="desc">${esc(j['설명'])}</div>` : '';
+        L.innerHTML = `<div class="job${paramHtml?' haspar':''}"><div class="name">${esc(j['버튼이름'])}${desc}</div><div class="ctl">${paramHtml}<button class="btn">적용</button></div></div>`;
+        L.querySelectorAll('.seg button').forEach(b => b.onclick = () => { b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
+        const R = document.createElement('div'); R.className = 'R' + last;
+        R.innerHTML = `<div class="job stat" data-code="${esc(j['작업코드'])}"></div>`;
+        L.querySelector('button.btn').onclick = () => isPhoto ? pickPhoto(j, L, R) : run(j, L);
+        box.appendChild(L); box.appendChild(R);
+      });
     });
+    box.insertAdjacentHTML('beforeend', `<div class="L bot"></div><div class="R bot"></div>`);
   });
-  b.insertAdjacentHTML('beforeend', `<div class="L bot"></div><div class="R bot"></div>`);
 }
 
 async function run(job, cell){
@@ -325,7 +347,7 @@ async function refreshStatus(){
       el.innerHTML = list.map(chipHtml).join('');
       el.querySelectorAll('.x').forEach(x => x.onclick = () => cancelJob(x.dataset.id, x.dataset.st, el.dataset.code));
     });
-    const lr = document.getElementById('lastRefresh'); if(lr) lr.textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신';
+    document.querySelectorAll('.lastRefresh').forEach(lr => lr.textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신');
   }catch(_){}
 }
 init();
