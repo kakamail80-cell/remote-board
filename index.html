@@ -47,21 +47,21 @@
   .R .job { font-size:12.5px; color:var(--sub); white-space:nowrap; overflow-x:auto; overflow-y:hidden; gap:6px; scrollbar-width:none; }
   .R .job::-webkit-scrollbar { display:none; }
   .R .time { color:var(--txt); }
-  .R .files { display:flex; gap:10px; overflow:hidden; min-width:0; }
-  .R .files a { color:var(--pri); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:220px; }
-  .R .files a:hover { text-decoration:underline; }
-  .R .files span { overflow:hidden; text-overflow:ellipsis; }
+  /* 결과 파일 = 상태 배지와 같은 알약 모양. 이름은 "(F_1) 1007" 처럼 앞머리+날짜만 (전체 이름은 길게 누르거나 마우스를 올리면 보임) */
+  .R .files { display:flex; flex-wrap:wrap; gap:4px; min-width:0; }
+  .R .files a, .R .files span { display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; color:#fff; background:var(--pri); text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:160px; }
+  .R .files a:hover { background:#1d4ed8; }
+  .R .files span { background:#cbd5e1; color:#374151; }   /* 드라이브 동기화 전(링크 없음) */
   .st { display:inline-block; padding:1px 7px; border-radius:999px; color:#fff; font-size:11px; background:#9ca3af; }
   .st.대기 { background:var(--wait);} .st.실행중, .st.중지요청 { background:var(--run);} .st.완료 { background:var(--ok);} .st.실패 { background:var(--bad);} .st.취소, .st.중지 { background:#cbd5e1; color:#374151; }
   /* 상태 칩 = [배지 / 그 아래 작은 시각] (+ 파일). 배지 우측 상단에 반쯤 걸친 동그란 X (누르면 취소·중지·표시 지우기) */
-  .chip { display:inline-flex; align-items:center; gap:6px; padding:4px 0 2px; margin-right:10px; white-space:nowrap; max-width:100%; }
+  .chip { display:inline-flex; align-items:flex-start; gap:6px; padding:4px 0 2px; margin-right:10px; white-space:nowrap; max-width:100%; }
   .L .job, .R .job { height:100%; }   /* 오른쪽 칩이 줄바꿈돼 줄이 높아져도 양쪽 내용이 세로 가운데 */
   .chip .b { position:relative; display:inline-flex; flex-direction:column; align-items:center; padding-right:5px; }
   .chip .x { position:absolute; top:-6px; right:-2px; width:14px; height:14px; border-radius:50%; border:1px solid #fff; background:#374151; color:#fff; font-size:10px; line-height:12px; text-align:center; cursor:pointer; padding:0; }
   .chip .x:hover { background:var(--bad); }
   .chip.실행중 .x, .chip.중지요청 .x { background:var(--bad); }
   .chip .t { display:block; color:var(--sub); font-size:10px; line-height:12px; margin-top:2px; }
-  .chip .files { font-size:11.5px; }
   .chip.중지요청 .st::after { content:' → 중지 중'; }
 
   #setup { max-width:520px; margin:60px auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
@@ -85,7 +85,7 @@
     .R .job { font-size:11.5px; gap:4px; white-space:normal; flex-wrap:wrap; overflow:visible; }   /* 칩이 많으면 줄바꿈 (왼쪽 칸 높이도 같이 늘어남) */
     .chip { margin-right:6px; padding:3px 0 1px; gap:4px; }
     .chip .t { font-size:9.5px; }
-    .R .files a, .R .files span { max-width:90px; }
+    .R .files a, .R .files span { max-width:110px; padding:1px 5px; font-size:10px; }
     .st { padding:1px 5px; font-size:10px; }
     header { padding:10px 12px; gap:8px; }
     header h1 { font-size:16px; }
@@ -273,6 +273,15 @@ function fmt(v){
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+// 파일 이름을 짧게: "(F_1) PC_LIST - 1007.xlsm" → "(F_1) 1007". 앞머리 괄호가 없으면 확장자만 뗀 이름 그대로
+function shortName(n){
+  const base = String(n).replace(/\.[^.]+$/, '').trim();
+  const head = base.match(/^\s*(\([^)]*\))/);
+  if(!head) return base;
+  const date = base.match(/(\d{4,8})\s*$/);
+  return date ? `${head[1]} ${date[1]}` : head[1];
+}
+
 // 칩 1개: 상태 배지 + 시각(대기·실행중은 누른 시각, 끝난 건은 완료 시각) + 파일 + 우측 상단 X
 function chipHtml(q){
   const st = q['상태'];
@@ -283,8 +292,8 @@ function chipHtml(q){
   const names = String(q['결과파일']||'').split('\n').filter(Boolean);
   const links = String(q['결과링크']||'').split('\n').filter(Boolean);
   const files = names.map((n,i) => links[i]
-    ? `<a href="${esc(links[i])}" target="_blank" title="${esc(n)}">${esc(n)}</a>`
-    : `<span title="${esc(n)} (드라이브 동기화 중)">${esc(n)}</span>`).join('');
+    ? `<a href="${esc(links[i])}" target="_blank" title="${esc(n)}">${esc(shortName(n))}</a>`
+    : `<span title="${esc(n)} (드라이브 동기화 중)">${esc(shortName(n))}</span>`).join('');
   const xTitle = waiting ? '대기 취소' : (running ? '실행 중지' : '표시 지우기');
   return `<span class="chip ${esc(st)}"><span class="b"><span class="st ${esc(st)}">${esc(st)}</span><button class="x" data-id="${esc(q['ID'])}" data-st="${esc(st)}" title="${xTitle}">×</button><span class="t">${day}${fmt(when)}${range}</span></span>${files?`<span class="files">${files}</span>`:''}</span>`;
 }
