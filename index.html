@@ -13,7 +13,7 @@
   * { box-sizing:border-box; }
   body { margin:0; font-family:"Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif; background:var(--bg); color:var(--txt); }
   header { background:#111827; color:#fff; padding:14px 20px; display:flex; align-items:center; gap:14px; }
-  header h1 { font-size:18px; margin:0; }
+  header h1 { font-size:18px; margin:0; cursor:pointer; }
   header .runner { margin-left:auto; font-size:12.5px; padding:3px 10px; border-radius:999px; background:#374151; color:#e5e7eb; }
   header .runner.on { background:#065f46; color:#d1fae5; }
   header .runner.off { background:#7f1d1d; color:#fee2e2; }
@@ -44,14 +44,25 @@
   .btn { background:var(--pri); color:#fff; border:0; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12.5px; white-space:nowrap; }
   .btn:disabled { background:#9ca3af; cursor:not-allowed; }
 
-  .R .job { font-size:12.5px; color:var(--sub); white-space:nowrap; overflow:hidden; gap:6px; }
+  .R .job { font-size:12.5px; color:var(--sub); white-space:nowrap; overflow-x:auto; overflow-y:hidden; gap:6px; scrollbar-width:none; }
+  .R .job::-webkit-scrollbar { display:none; }
   .R .time { color:var(--txt); }
   .R .files { display:flex; gap:10px; overflow:hidden; min-width:0; }
   .R .files a { color:var(--pri); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:220px; }
   .R .files a:hover { text-decoration:underline; }
   .R .files span { overflow:hidden; text-overflow:ellipsis; }
   .st { display:inline-block; padding:1px 7px; border-radius:999px; color:#fff; font-size:11px; background:#9ca3af; }
-  .st.대기 { background:var(--wait);} .st.실행중 { background:var(--run);} .st.완료 { background:var(--ok);} .st.실패 { background:var(--bad);} .st.취소 { background:#cbd5e1; color:#374151; }
+  .st.대기 { background:var(--wait);} .st.실행중, .st.중지요청 { background:var(--run);} .st.완료 { background:var(--ok);} .st.실패 { background:var(--bad);} .st.취소, .st.중지 { background:#cbd5e1; color:#374151; }
+  /* 상태 칩 = [배지 / 그 아래 작은 시각] (+ 파일). 배지 우측 상단에 반쯤 걸친 동그란 X (누르면 취소·중지·표시 지우기) */
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:4px 0 2px; margin-right:10px; white-space:nowrap; max-width:100%; }
+  .L .job, .R .job { height:100%; }   /* 오른쪽 칩이 줄바꿈돼 줄이 높아져도 양쪽 내용이 세로 가운데 */
+  .chip .b { position:relative; display:inline-flex; flex-direction:column; align-items:center; padding-right:5px; }
+  .chip .x { position:absolute; top:-6px; right:-2px; width:14px; height:14px; border-radius:50%; border:1px solid #fff; background:#374151; color:#fff; font-size:10px; line-height:12px; text-align:center; cursor:pointer; padding:0; }
+  .chip .x:hover { background:var(--bad); }
+  .chip.실행중 .x, .chip.중지요청 .x { background:var(--bad); }
+  .chip .t { display:block; color:var(--sub); font-size:10px; line-height:12px; margin-top:2px; }
+  .chip .files { font-size:11.5px; }
+  .chip.중지요청 .st::after { content:' → 중지 중'; }
 
   #setup { max-width:520px; margin:60px auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
   #setup h2 { font-size:15px; margin:0 0 12px; color:#374151; }
@@ -71,8 +82,9 @@
     .L .name { font-size:12.5px; }
     .L .desc { display:none; }
     .btn { padding:5px 9px; font-size:12px; }
-    .R .job { font-size:11.5px; gap:4px; }
-    .R .req { display:none; }                /* 휴대폰: 요청시각은 숨기고 상태·완료시각·파일만 */
+    .R .job { font-size:11.5px; gap:4px; white-space:normal; flex-wrap:wrap; overflow:visible; }   /* 칩이 많으면 줄바꿈 (왼쪽 칸 높이도 같이 늘어남) */
+    .chip { margin-right:6px; padding:3px 0 1px; gap:4px; }
+    .chip .t { font-size:9.5px; }
     .R .files a, .R .files span { max-width:90px; }
     .st { padding:1px 5px; font-size:10px; }
     header { padding:10px 12px; gap:8px; }
@@ -85,7 +97,7 @@
 </head>
 <body>
 <header>
-  <h1>원격 실행 보드</h1>
+  <h1 onclick="goHome()" title="홈으로">원격 실행 보드</h1>
   <span class="runner" id="runner"></span>
   <span class="who" id="who"></span>
   <button onclick="openSetup()">설정</button>
@@ -114,6 +126,7 @@ function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.
 function openSetup(){ document.getElementById('setup').style.display='block'; document.getElementById('board').style.display='none';
   if(cfg){ cfgUrl.value=cfg.url; cfgToken.value=cfg.token; } }
 function saveSetup(){ cfg={url:cfgUrl.value.trim(), token:cfgToken.value.trim()}; localStorage.setItem(LS, JSON.stringify(cfg)); init(); }
+function goHome(){ init(); }   // 제목 클릭 → 설정 화면을 닫고 보드로 (버튼 목록도 다시 읽음)
 
 async function api(params, body){
   const u = new URL(cfg.url); Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v)); u.searchParams.set('token', cfg.token);
@@ -146,7 +159,7 @@ function renderJobs(jobs){
     list.forEach((j, i) => {
       const last = (gi === entries.length-1 && i === list.length-1) ? ' lastrow' : '';
       let paramHtml = '';
-      const isRange = j['파라미터']==='기간';
+      const isRange = j['파라미터']==='기간', isPhoto = j['파라미터']==='사진';
       if(isRange){ paramHtml = `<span class="seg" data-k="range"><button type="button" data-v="today" class="on">오늘</button><button type="button" data-v="week">일주일</button></span>`; }
       else if(j['파라미터']==='텍스트'){ paramHtml = `<input type="text" data-k="text" placeholder="${esc(j['설명']||'')}">`; }
       const L = document.createElement('div'); L.className = 'L' + last;
@@ -155,7 +168,7 @@ function renderJobs(jobs){
       L.querySelectorAll('.seg button').forEach(b => b.onclick = () => { b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
       const R = document.createElement('div'); R.className = 'R' + last;
       R.innerHTML = `<div class="job stat" data-code="${esc(j['작업코드'])}"></div>`;
-      L.querySelector('button.btn').onclick = () => run(j, L);
+      L.querySelector('button.btn').onclick = () => isPhoto ? pickPhoto(j, L, R) : run(j, L);
       b.appendChild(L); b.appendChild(R);
     });
   });
@@ -184,6 +197,65 @@ async function run(job, cell){
   btn.disabled = false;
 }
 
+// ---------- 상품사진 등록 ----------
+// 적용 → 휴대폰 사진첩(또는 카메라)에서 사진 선택 → 저장 이름 입력 → 긴 변 2000px 로 줄여 업로드
+// → 드라이브 image 폴더에 저장되고 PC 러너가 \\wondercompany\...\0-주문서 만들기 (클로드)\image 로 옮긴다
+const PHOTO_MAX_EDGE = 2000, PHOTO_QUALITY = 0.9;
+const uploading = {};   // 작업코드 → true (업로드 중에는 상태칸을 갱신으로 덮지 않음)
+
+function pickPhoto(job, cell, statCell){
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*'; inp.style.display = 'none';
+  document.body.appendChild(inp);
+  inp.onchange = async () => {
+    const file = inp.files && inp.files[0]; inp.remove();
+    if(!file) return;
+    const base = file.name.replace(/\.[^.]+$/, '');
+    let name = prompt('저장할 사진 이름을 입력하세요 (확장자 제외)', /^(image|img|dsc|pxl|photo|kakaotalk)/i.test(base) ? '' : base);
+    if(name === null) return;
+    name = name.replace(/[\\/:*?"<>|]/g, '').trim();
+    if(!name){ toast('사진 이름을 입력해야 합니다'); return; }
+    const btn = cell.querySelector('button.btn'); btn.disabled = true;
+    const stat = statCell.querySelector('.stat'); uploading[job['작업코드']] = true;
+    try{
+      stat.innerHTML = `<span class="st 실행중">업로드 중</span> <span class="files"><span>${esc(name)}</span></span>`;
+      const { blob, mime } = await shrinkImage(file);
+      const data = await toBase64(blob);
+      const res = await api({}, { action:'upload', code: job['작업코드'], name, mime, data });
+      if(res.ok){ mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); toast(`사진 업로드 완료 — PC 러너가 image 폴더에 저장합니다 (${res.name})`); }
+      else { toast('실패: ' + res.error); stat.innerHTML = `<span class="st 실패">실패</span> <span class="files"><span>${esc(res.error||'')}</span></span>`; }
+    }catch(e){ toast('업로드 실패: ' + e.message); stat.innerHTML = `<span class="st 실패">실패</span>`; }
+    delete uploading[job['작업코드']]; btn.disabled = false;
+    refreshStatus();
+  };
+  inp.click();
+}
+
+// 사진을 긴 변 2000px 이하로 줄여 JPEG 로 (PNG 는 PNG 유지). 브라우저가 못 읽는 형식(HEIC 등)은 원본 그대로 올린다
+function shrinkImage(file){
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const w = img.naturalWidth, h = img.naturalHeight, m = Math.max(w, h);
+      const s = m > PHOTO_MAX_EDGE ? PHOTO_MAX_EDGE / m : 1;
+      const cw = Math.round(w * s), ch = Math.round(h * s);
+      try{
+        const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+        c.getContext('2d').drawImage(img, 0, 0, cw, ch);
+        const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        c.toBlob(b => resolve(b ? { blob: b, mime } : { blob: file, mime: file.type || 'image/jpeg' }), mime, PHOTO_QUALITY);
+      }catch(_){ resolve({ blob: file, mime: file.type || 'image/jpeg' }); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve({ blob: file, mime: file.type || 'image/jpeg' }); };
+    img.src = url;
+  });
+}
+function toBase64(blob){
+  return new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => no(new Error('파일 읽기 실패')); r.readAsDataURL(blob); });
+}
+
 // 러너 생존 표시: 60초 이내 접속이면 켜짐
 function showRunner(seen, busy){
   const el = document.getElementById('runner'); if(!el) return;
@@ -201,28 +273,48 @@ function fmt(v){
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// 작업코드별 최근 1건을 같은 줄 오른쪽에: 요청시각 · 상태 · 완료시각 · 생성 파일(클릭하면 열림)
-// (시트는 작업별 마지막 1건만 남기므로, 휴대폰을 닫았다 다시 열어도 마지막 결과가 보인다)
+// 칩 1개: 상태 배지 + 시각(대기·실행중은 누른 시각, 끝난 건은 완료 시각) + 파일 + 우측 상단 X
+function chipHtml(q){
+  const st = q['상태'];
+  const running = (st==='실행중' || st==='중지요청'), waiting = (st==='대기');
+  const when = (waiting || running) ? q['요청시각'] : (q['종료시각'] || q['요청시각']);
+  const day = (() => { const d = new Date(when); if(isNaN(d)) return ''; const t = new Date(); return (d.toDateString() === t.toDateString()) ? '' : `${d.getMonth()+1}/${d.getDate()} `; })();
+  const range = (() => { try { const o = JSON.parse(q['파라미터']||'{}'); return o.range === 'week' ? ' 일주일' : (o.range === 'today' ? ' 오늘' : ''); } catch(_) { return ''; } })();
+  const names = String(q['결과파일']||'').split('\n').filter(Boolean);
+  const links = String(q['결과링크']||'').split('\n').filter(Boolean);
+  const files = names.map((n,i) => links[i]
+    ? `<a href="${esc(links[i])}" target="_blank" title="${esc(n)}">${esc(n)}</a>`
+    : `<span title="${esc(n)} (드라이브 동기화 중)">${esc(n)}</span>`).join('');
+  const xTitle = waiting ? '대기 취소' : (running ? '실행 중지' : '표시 지우기');
+  return `<span class="chip ${esc(st)}"><span class="b"><span class="st ${esc(st)}">${esc(st)}</span><button class="x" data-id="${esc(q['ID'])}" data-st="${esc(st)}" title="${xTitle}">×</button><span class="t">${day}${fmt(when)}${range}</span></span>${files?`<span class="files">${files}</span>`:''}</span>`;
+}
+
+// X 버튼: 대기 → 취소 / 실행중 → PC 러너에 중지 요청 / 끝난 건 → 표시 삭제
+async function cancelJob(id, st, code){
+  if(st==='실행중' || st==='중지요청'){ if(!confirm('실행 중인 작업을 중지할까요?\n(PC 에서 돌고 있는 프로그램을 강제로 끝냅니다)')) return; }
+  try{
+    const res = await api({}, {action:'cancel', id});
+    if(!res.ok){ toast('실패: '+res.error); return; }
+    toast(res.result==='중지요청' ? '중지 요청 — PC 러너가 곧 끊습니다' : (res.result==='취소' ? '대기 취소됨' : '표시 지움'));
+    refreshStatus();
+  }catch(e){ toast('요청 실패: '+e.message); }
+}
+
+// 작업코드별 오늘 건을 같은 줄 오른쪽에 칩으로 (시트는 작업별 마지막 결과 1건 + 대기·실행중만 남긴다)
 async function refreshStatus(){
   try{
     const res = await api({action:'queue', n:50});
     if(!res.ok) return;
     showRunner(res.runner_seen, res.runner_busy);
-    const latest = {};
-    res.queue.forEach(q => { if(!latest[q['작업코드']]) latest[q['작업코드']] = q; });   // queue 는 최신순
+    // 작업코드별로 오늘 건을 시간순(먼저 누른 것이 앞)으로 모두 칩으로 표시: [완료 12:28 파일] [실행중 13:57 ×] [대기 14:04 ×] [대기 14:09 ×]
+    const byCode = {};
+    res.queue.slice().reverse().forEach(q => { if(q['상태']==='취소') return; (byCode[q['작업코드']] = byCode[q['작업코드']] || []).push(q); });
     document.querySelectorAll('.stat').forEach(el => {
-      const q = latest[el.dataset.code];
-      if(!q){ el.innerHTML = ''; return; }
-      const st = q['상태'];
-      const done = (st==='완료' || st==='실패') ? fmt(q['종료시각']) : '';
-      const names = String(q['결과파일']||'').split('\n').filter(Boolean);
-      const links = String(q['결과링크']||'').split('\n').filter(Boolean);
-      const files = names.map((n,i) => links[i]
-        ? `<a href="${esc(links[i])}" target="_blank" title="${esc(n)}">${esc(n)}</a>`
-        : `<span title="${esc(n)} (드라이브 동기화 중)">${esc(n)}</span>`).join('');
-      const day = (() => { const d = new Date(q['요청시각']); if(isNaN(d)) return ''; const t = new Date(); return (d.toDateString() === t.toDateString()) ? '' : `${d.getMonth()+1}/${d.getDate()} `; })();
-      const range = (() => { try { const o = JSON.parse(q['파라미터']||'{}'); return o.range === 'week' ? ' 일주일' : (o.range === 'today' ? ' 오늘' : ''); } catch(_) { return ''; } })();
-      el.innerHTML = `<span class="time req">${day}${fmt(q['요청시각'])}${range}</span> <span class="st ${esc(st)}">${esc(st)}</span>${done?` <span class="time">${done}</span>`:''}${files?` <span class="files">${files}</span>`:''}`;
+      if(uploading[el.dataset.code]) return;
+      const list = byCode[el.dataset.code];
+      if(!list){ el.innerHTML = ''; return; }
+      el.innerHTML = list.map(chipHtml).join('');
+      el.querySelectorAll('.x').forEach(x => x.onclick = () => cancelJob(x.dataset.id, x.dataset.st, el.dataset.code));
     });
     const lr = document.getElementById('lastRefresh'); if(lr) lr.textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신';
   }catch(_){}
