@@ -70,6 +70,24 @@
   .uperr { color:var(--bad); font-size:11px; white-space:normal; word-break:break-all; }
   .chip.중지요청 .st::after { content:' → 중지 중'; }
 
+  /* 사진 자르기 화면: 10:7 틀 안에서 사진을 끌어 위치를 맞추고, 슬라이더·두 손가락으로 확대 */
+  #crop { position:fixed; inset:0; background:rgba(17,24,39,.92); z-index:50; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:16px; }
+  #crop.show { display:flex; }
+  #crop .tip { color:#e5e7eb; font-size:13px; }
+  #cropView { position:relative; width:min(92vw,640px); aspect-ratio:10/7; overflow:hidden; background:#000; border:2px solid #fff; border-radius:6px; touch-action:none; cursor:grab; }
+  #cropView img { position:absolute; left:50%; top:50%; max-width:none; user-select:none; -webkit-user-drag:none; pointer-events:none; }
+  /* 가이드 라인: 3등분 선 + 가운데 십자 */
+  #cropView .guide { position:absolute; inset:0; pointer-events:none;
+    background:
+      linear-gradient(to right, transparent calc(33.333% - .5px), rgba(255,255,255,.55) calc(33.333% - .5px), rgba(255,255,255,.55) calc(33.333% + .5px), transparent calc(33.333% + .5px), transparent calc(66.666% - .5px), rgba(255,255,255,.55) calc(66.666% - .5px), rgba(255,255,255,.55) calc(66.666% + .5px), transparent calc(66.666% + .5px)),
+      linear-gradient(to bottom, transparent calc(33.333% - .5px), rgba(255,255,255,.55) calc(33.333% - .5px), rgba(255,255,255,.55) calc(33.333% + .5px), transparent calc(33.333% + .5px), transparent calc(66.666% - .5px), rgba(255,255,255,.55) calc(66.666% - .5px), rgba(255,255,255,.55) calc(66.666% + .5px), transparent calc(66.666% + .5px)); }
+  #cropView .guide::before, #cropView .guide::after { content:''; position:absolute; left:50%; top:50%; background:#ef4444; transform:translate(-50%,-50%); }
+  #cropView .guide::before { width:22px; height:2px; } #cropView .guide::after { width:2px; height:22px; }
+  #crop input[type=range] { width:min(80vw,420px); }
+  #crop .row { display:flex; gap:10px; }
+  #crop .row button { border:0; border-radius:8px; padding:10px 22px; font-size:14px; cursor:pointer; }
+  #crop .ok { background:var(--pri); color:#fff; } #crop .no { background:#374151; color:#fff; }
+
   #setup { max-width:520px; margin:60px auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
   #setup h2 { font-size:15px; margin:0 0 12px; color:#374151; }
   #setup input { width:100%; padding:9px; margin:6px 0 12px; border:1px solid var(--line); border-radius:6px; }
@@ -123,6 +141,12 @@
 </div>
 
 <main id="board" style="display:none"></main>
+<div id="crop">
+  <div class="tip">사진을 끌어서 위치를 맞추세요 (흰 틀 안쪽이 그대로 저장됩니다)</div>
+  <div id="cropView"><img id="cropImg" alt=""><div class="guide"></div></div>
+  <input type="range" id="cropZoom" min="1" max="4" step="0.01" value="1">
+  <div class="row"><button class="no" id="cropNo">취소</button><button class="ok" id="cropOk">저장</button></div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -221,7 +245,7 @@ async function run(job, cell){
 }
 
 // ---------- 상품사진 등록 ----------
-// 적용 → 휴대폰 사진첩(또는 카메라)에서 사진 선택 → 저장 이름 입력 → 긴 변 2000px 로 줄여 업로드
+// 적용 → 휴대폰 사진첩(또는 카메라)에서 사진 선택 → 10:7 로 자르기 → 저장 이름 입력 → 업로드
 // → 드라이브 image 폴더에 저장되고 PC 러너가 \\wondercompany\...\0-주문서 만들기 (클로드)\image 로 옮긴다
 const PHOTO_MAX_EDGE = 2000, PHOTO_QUALITY = 0.9;
 const photoErr = {};    // 작업코드 → 마지막 업로드 실패 메시지 (다음에 다시 올릴 때까지 화면에 남김)
@@ -234,6 +258,8 @@ function pickPhoto(job, cell, statCell){
   inp.onchange = async () => {
     const file = inp.files && inp.files[0]; inp.remove();
     if(!file) return;
+    const cropped = await cropPhoto(file);      // 10:7 로 자르기 (취소하면 null)
+    if(!cropped) return;
     const base = file.name.replace(/\.[^.]+$/, '');
     let name = prompt('저장할 사진 이름을 입력하세요 (확장자 제외)', /^(image|img|dsc|pxl|photo|kakaotalk)/i.test(base) ? '' : base);
     if(name === null) return;
@@ -243,7 +269,7 @@ function pickPhoto(job, cell, statCell){
     const stat = statCell.querySelector('.stat'); uploading[job['작업코드']] = true; delete photoErr[job['작업코드']];
     try{
       stat.innerHTML = `<span class="st 실행중">업로드 중</span> <span class="files"><span>${esc(name)}</span></span>`;
-      const { blob, mime } = await shrinkImage(file);
+      const { blob, mime } = cropped;
       const data = await toBase64(blob);
       const res = await api({}, { action:'upload', code: job['작업코드'], name, mime, data });
       if(res.ok){ mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); toast(`사진 업로드 완료 — PC 러너가 image 폴더에 저장합니다 (${res.name})`); }
@@ -255,7 +281,62 @@ function pickPhoto(job, cell, statCell){
   inp.click();
 }
 
-// 사진을 긴 변 2000px 이하로 줄여 JPEG 로 (PNG 는 PNG 유지). 브라우저가 못 읽는 형식(HEIC 등)은 원본 그대로 올린다
+// 사진 자르기: 가로 10 : 세로 7 틀을 띄워 위치·확대를 맞춘 뒤 그 부분만 잘라낸다 (긴 변 2000px 이하)
+// 브라우저가 못 읽는 형식(HEIC 등)은 자르지 못하므로 원본 그대로 올린다
+const CROP_W = 10, CROP_H = 7;
+function cropPhoto(file){
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const box = document.getElementById('crop'), view = document.getElementById('cropView');
+    const img = document.getElementById('cropImg'), zoom = document.getElementById('cropZoom');
+    const raw = () => resolve({ blob: file, mime: file.type || 'image/jpeg' });
+    img.onerror = () => { URL.revokeObjectURL(url); toast('이 사진 형식은 자르기를 지원하지 않아 원본으로 올립니다'); raw(); };
+    img.onload = () => {
+      const iw = img.naturalWidth, ih = img.naturalHeight;
+      box.classList.add('show');
+      const vw = view.clientWidth, vh = view.clientHeight;
+      const base = Math.max(vw / iw, vh / ih);      // 틀을 꽉 채우는 최소 배율
+      let s = 1, x = 0, y = 0;                       // s = 확대, (x,y) = 사진 중심이 틀 중심에서 벗어난 거리(px)
+      zoom.value = 1;
+      const draw = () => {
+        const dw = iw * base * s, dh = ih * base * s;
+        x = Math.max(-(dw - vw) / 2, Math.min((dw - vw) / 2, x));
+        y = Math.max(-(dh - vh) / 2, Math.min((dh - vh) / 2, y));
+        img.style.width = dw + 'px'; img.style.height = dh + 'px';
+        img.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+      };
+      draw();
+      const pts = new Map(); let pinch = 0;
+      const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+      view.onpointerdown = e => { view.setPointerCapture(e.pointerId); pts.set(e.pointerId, {x:e.clientX, y:e.clientY}); if(pts.size === 2) pinch = dist(); };
+      view.onpointermove = e => {
+        const p = pts.get(e.pointerId); if(!p) return;
+        if(pts.size === 1){ x += e.clientX - p.x; y += e.clientY - p.y; }
+        p.x = e.clientX; p.y = e.clientY;
+        if(pts.size === 2){ const d = dist(); if(pinch){ s = Math.max(1, Math.min(4, s * d / pinch)); zoom.value = s; } pinch = d; }
+        draw();
+      };
+      view.onpointerup = view.onpointercancel = e => { pts.delete(e.pointerId); pinch = 0; };
+      zoom.oninput = () => { s = Number(zoom.value); draw(); };
+      const close = () => { box.classList.remove('show'); URL.revokeObjectURL(url); view.onpointerdown = view.onpointermove = view.onpointerup = view.onpointercancel = null; };
+      document.getElementById('cropNo').onclick = () => { close(); resolve(null); };
+      document.getElementById('cropOk').onclick = () => {
+        const k = base * s, sw = vw / k, sh = vh / k;
+        const sx = iw / 2 - x / k - sw / 2, sy = ih / 2 - y / k - sh / 2;
+        const ow = Math.round(Math.min(sw, PHOTO_MAX_EDGE)), oh = Math.round(ow * CROP_H / CROP_W);
+        try{
+          const c = document.createElement('canvas'); c.width = ow; c.height = oh;
+          c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, ow, oh);
+          const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+          c.toBlob(b => { close(); b ? resolve({ blob: b, mime }) : raw(); }, mime, PHOTO_QUALITY);
+        }catch(_){ close(); raw(); }
+      };
+    };
+    img.src = url;
+  });
+}
+
+// (예전 방식, 지금은 쓰지 않음) 사진을 긴 변 2000px 이하로 줄여 JPEG 로 (PNG 는 PNG 유지). 브라우저가 못 읽는 형식(HEIC 등)은 원본 그대로 올린다
 function shrinkImage(file){
   return new Promise(resolve => {
     const url = URL.createObjectURL(file);
