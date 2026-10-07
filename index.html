@@ -175,14 +175,15 @@ function fmt(v){
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// 이 화면에서 누른 작업 중 작업코드별 최근 1건을 같은 줄 오른쪽에: 요청시각 · 상태 · 완료시각 · 생성 파일(클릭하면 열림)
+// 작업코드별 최근 1건을 같은 줄 오른쪽에: 요청시각 · 상태 · 완료시각 · 생성 파일(클릭하면 열림)
+// (시트는 작업별 마지막 1건만 남기므로, 휴대폰을 닫았다 다시 열어도 마지막 결과가 보인다)
 async function refreshStatus(){
   try{
     const res = await api({action:'queue', n:50});
     if(!res.ok) return;
     showRunner(res.runner_seen, res.runner_busy);
     const latest = {};
-    res.queue.forEach(q => { if(mine.includes(String(q['ID'])) && !latest[q['작업코드']]) latest[q['작업코드']] = q; });   // queue 는 최신순
+    res.queue.forEach(q => { if(!latest[q['작업코드']]) latest[q['작업코드']] = q; });   // queue 는 최신순
     document.querySelectorAll('.stat').forEach(el => {
       const q = latest[el.dataset.code];
       if(!q){ el.innerHTML = ''; return; }
@@ -193,7 +194,8 @@ async function refreshStatus(){
       const files = names.map((n,i) => links[i]
         ? `<a href="${esc(links[i])}" target="_blank" title="${esc(n)}">${esc(n)}</a>`
         : `<span title="${esc(n)} (드라이브 동기화 중)">${esc(n)}</span>`).join('');
-      el.innerHTML = `<span class="time">${fmt(q['요청시각'])}</span> <span class="st ${esc(st)}">${esc(st)}</span>${done?` <span class="time">${done}</span>`:''}${files?` <span class="files">${files}</span>`:''}`;
+      const day = (() => { const d = new Date(q['요청시각']); if(isNaN(d)) return ''; const t = new Date(); return (d.toDateString() === t.toDateString()) ? '' : `${d.getMonth()+1}/${d.getDate()} `; })();
+      el.innerHTML = `<span class="time">${day}${fmt(q['요청시각'])}</span> <span class="st ${esc(st)}">${esc(st)}</span>${done?` <span class="time">${done}</span>`:''}${files?` <span class="files">${files}</span>`:''}`;
     });
     const lr = document.getElementById('lastRefresh'); if(lr) lr.textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신';
   }catch(_){}
