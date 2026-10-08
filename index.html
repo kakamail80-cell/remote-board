@@ -37,10 +37,14 @@
   .L.gh { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .L.gh .btn { background:#111827; color:#fff; }   /* 그룹 전체 버튼은 검은 바탕·흰 글씨 */
   .L.gh .btn:hover { background:#374151; }
-  .L.gh, .R.gh { padding-top:14px; padding-bottom:12px; }   /* 소제목 줄 위아래 여백 */
-  .gh.sp { padding-top:30px; }                               /* 두 번째 소제목부터는 앞 그룹과 더 띄움 */
-  .R.gh .job { border-bottom:0; min-height:0; padding:6px 0 0; }
-  .job { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px dashed var(--line); min-height:38px; }
+  /* 소제목 줄은 높이를 고정해, 오른쪽 칩이 있든 없든 버튼~첫 항목 간격이 그룹마다 같게 한다 */
+  .L.gh, .R.gh { height:56px; padding-top:14px; padding-bottom:12px; }
+  .gh.sp { height:72px; padding-top:30px; }                  /* 두 번째 소제목부터는 앞 그룹과 더 띄움 */
+  .R.gh { padding-top:8px; padding-bottom:4px; }             /* 칩(약 40px)이 들어갈 자리 */
+  .R.gh.sp { padding-top:24px; }
+  /* 소제목 줄 오른쪽 칩은 한 줄로만(가로 스크롤) → 사진이 여러 장이어도 소제목 줄 높이가 안 늘어나, 버튼~첫 항목 간격이 그룹마다 같다 */
+  .R.gh .job { border-bottom:0; min-height:0; padding:6px 0 0; white-space:nowrap; flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; }
+  .job { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed var(--line); min-height:42px; }   /* 항목 줄 간격 살짝 여유 */
   .lastrow .job { border-bottom:0; }
   .L .name { flex:1; font-size:13.5px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .L .desc { color:var(--sub); font-size:11.5px; display:inline; margin-left:6px; }
@@ -113,13 +117,16 @@
     .top { padding-top:10px; }
     .top h2 { font-size:13px; }
     .gh h3 { font-size:12px; margin:6px 0 2px; }
-    .L.gh, .R.gh { padding-top:10px; padding-bottom:8px; }
-    .gh.sp { padding-top:22px; }
-    .job { min-height:36px; gap:6px; padding:3px 0; }
+    .L.gh, .R.gh { height:46px; padding-top:10px; padding-bottom:8px; }
+    .gh.sp { height:58px; padding-top:22px; }
+    .R.gh { padding-top:4px; padding-bottom:2px; }
+    .R.gh.sp { padding-top:16px; }
+    .job { min-height:40px; gap:6px; padding:5px 0; }
     .L .name { font-size:12.5px; }
     .L .desc { display:none; }
     .btn { padding:5px 9px; font-size:12px; }
     .R .job { font-size:11.5px; gap:4px; white-space:normal; flex-wrap:wrap; overflow:visible; }   /* 칩이 많으면 줄바꿈 (왼쪽 칸 높이도 같이 늘어남) */
+    .R.gh .job { white-space:nowrap; flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; }   /* 소제목 줄만은 한 줄 유지 */
     .chip { margin-right:6px; padding:3px 0 1px; gap:4px; }
     .chip .t { font-size:9.5px; }
     .R .files a, .R .files span { max-width:110px; padding:1px 5px; font-size:10px; }
@@ -304,28 +311,33 @@ function pickPhoto(job, cell, statCell){
 }
 
 // ---------- 재고체크 사진촬영 ----------
-// [사진촬영] → 휴대폰 카메라가 바로 열림(사진첩 아님) → 찍으면 자르기·입력 없이 바로 업로드
+// [사진촬영] → 휴대폰이 "사진 찍기 / 사진첩" 선택창을 띄움 → 사진첩에서 여러 장을 한 번에 골라 올릴 수 있다 (2026-10-08 사장님 지시: 촬영 딜레이 없이)
+//   권장 흐름: 카메라 앱으로 연속 촬영 → [사진촬영] → 사진첩에서 전부 선택 → 한 번에 순차 업로드 (진행 "3/10" 칩 표시)
 // → Apps Script 가 드라이브 4_재고체크사진 폴더에 저장하고 [재고체크사진] 탭에 기록, 보드에는 즉시 '완료' 칩
-// 수량 판독용이라 상품사진보다 크게(긴 변 2500px, JPEG 0.92). 한 장에 한 칸(한 상품), 칸 라벨이 같이 보이게 찍는다.
-const STOCK_PHOTO_MAX_EDGE = 2500, STOCK_PHOTO_QUALITY = 0.92;
+// 수량 판독용이라 휴대폰 원본 해상도 그대로 올린다(줄이지 않음). 칸 라벨이 같이 보이게, 정면에서 찍는다.
 function shootPhoto(job, cell, statCell){
   const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'image/*'; inp.capture = 'environment'; inp.style.display = 'none';
+  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.style.display = 'none';   // capture 를 빼야 사진첩 다중 선택이 가능
   document.body.appendChild(inp);
   inp.onchange = async () => {
-    const file = inp.files && inp.files[0]; inp.remove();
-    if(!file) return;
+    const files = [...(inp.files || [])]; inp.remove();
+    if(!files.length) return;
     const btn = cell.querySelector('button.btn'); btn.disabled = true;
     const stat = statCell.querySelector('.stat'); uploading[job['작업코드']] = true; delete photoErr[job['작업코드']];
-    try{
-      const prev = stat.innerHTML;
-      stat.innerHTML = `<span class="chip"><span class="st 실행중">업로드 중</span></span>` + prev;
-      const { blob, mime } = await shrinkImage(file, STOCK_PHOTO_MAX_EDGE, STOCK_PHOTO_QUALITY);
-      const data = await toBase64(blob);
-      const res = await api({}, { action:'upload', code: job['작업코드'], mime, data });
-      if(res.ok){ mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); toast(`저장 완료 (${res.name}) — 계속 찍으려면 다시 누르세요`); }
-      else { toast('실패: ' + res.error); photoErr[job['작업코드']] = res.error || '알 수 없는 오류'; }
-    }catch(e){ toast('업로드 실패: ' + e.message); photoErr[job['작업코드']] = '전송 실패: ' + e.message; }
+    const prev = stat.innerHTML; let okN = 0; const fails = [];
+    for(let i = 0; i < files.length; i++){
+      const file = files[i];
+      stat.innerHTML = `<span class="chip"><span class="st 실행중">업로드 ${i + 1}/${files.length}</span></span>` + prev;
+      try{
+        const mime = file.type || 'image/jpeg';   // 원본 그대로. 15MB 넘으면 서버가 거절
+        const data = await toBase64(file);
+        const res = await api({}, { action:'upload', code: job['작업코드'], mime, data });
+        if(res.ok){ okN++; mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); }
+        else fails.push(`${i + 1}번째: ${res.error || '알 수 없는 오류'}`);
+      }catch(e){ fails.push(`${i + 1}번째: 전송 실패 (${e.message})`); }
+    }
+    if(fails.length) photoErr[job['작업코드']] = fails.join(' / ');
+    toast(fails.length ? `${okN}장 저장, ${fails.length}장 실패 — ${fails[0]}` : `${okN}장 저장 완료 — 계속 올리려면 다시 누르세요`);
     delete uploading[job['작업코드']]; btn.disabled = false;
     refreshStatus();
   };
