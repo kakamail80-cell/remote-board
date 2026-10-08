@@ -52,8 +52,8 @@
   .seg button { background:#fff; color:var(--txt); border:0; padding:5px 10px; font-size:12.5px; cursor:pointer; }
   .seg button + button { border-left:1px solid var(--line); }
   .seg button.on { background:#e0e7ff; color:#1e3a8a; font-weight:600; }
-  .btn { background:#4b5563; color:#fff; border:0; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12.5px; white-space:nowrap; }   /* 적용 버튼 = 진한 회색 */
-  .btn:hover { background:#374151; }
+  .btn { background:#9ca3af; color:#fff; border:0; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12.5px; white-space:nowrap; }   /* 적용 버튼 = 회색 (진한 회색에서 3톤 밝게) */
+  .btn:hover { background:#6b7280; }
   .btn:disabled { background:#9ca3af; cursor:not-allowed; }
 
   .R .job { font-size:12.5px; color:var(--sub); white-space:nowrap; overflow-x:auto; overflow-y:hidden; gap:6px; scrollbar-width:none; }
@@ -208,7 +208,8 @@ function renderJobs(jobs){
     const entries = Object.entries(groups);
     entries.forEach(([g, all], gi) => {
       // 파라미터 = '그룹' 인 작업은 줄을 따로 만들지 않고 소제목 오른쪽 끝에 버튼으로 붙인다 (예: 재고매칭 → 전체 자동실행)
-      const headJob = (g !== sec.title) ? all.find(j => j['파라미터'] === '그룹') : null;
+      // 파라미터 '그룹사진' 은 소제목 버튼이되, 누르면 카메라가 바로 열려 찍은 사진을 드라이브에 저장 (재고체크 사진촬영)
+      const headJob = (g !== sec.title) ? all.find(j => j['파라미터'] === '그룹' || j['파라미터'] === '그룹사진') : null;
       const list = all.filter(j => j !== headJob);
       const sp = gi ? ' sp' : '';   // 두 번째 소제목부터 위 여백
       // 주제 이름이 구역 제목과 같으면(예: 상품) 소제목은 생략
@@ -218,7 +219,7 @@ function renderJobs(jobs){
         Lh.innerHTML = `<h3>${esc(g)}</h3>` + (headJob ? `<button class="btn" title="${esc(headJob['설명']||'')}">${esc(headJob['버튼이름'])}</button>` : '');
         const Rh = document.createElement('div'); Rh.className = 'R gh' + sp;
         Rh.innerHTML = headJob ? `<div class="job stat" data-code="${esc(headJob['작업코드'])}"></div>` : `<h3>.</h3>`;
-        if(headJob) Lh.querySelector('button.btn').onclick = () => run(headJob, Lh);
+        if(headJob) Lh.querySelector('button.btn').onclick = () => headJob['파라미터'] === '그룹사진' ? shootPhoto(headJob, Lh, Rh) : run(headJob, Lh);
         box.appendChild(Lh); box.appendChild(Rh);
       }
       list.forEach((j, i) => {
@@ -300,6 +301,35 @@ function pickPhoto(job, cell, statCell){
   inp.click();
 }
 
+// ---------- 재고체크 사진촬영 ----------
+// [사진촬영] → 휴대폰 카메라가 바로 열림(사진첩 아님) → 찍으면 자르기·입력 없이 바로 업로드
+// → Apps Script 가 드라이브 4_재고체크사진 폴더에 저장하고 [재고체크사진] 탭에 기록, 보드에는 즉시 '완료' 칩
+// 수량 판독용이라 상품사진보다 크게(긴 변 2500px, JPEG 0.92). 한 장에 한 칸(한 상품), 칸 라벨이 같이 보이게 찍는다.
+const STOCK_PHOTO_MAX_EDGE = 2500, STOCK_PHOTO_QUALITY = 0.92;
+function shootPhoto(job, cell, statCell){
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*'; inp.capture = 'environment'; inp.style.display = 'none';
+  document.body.appendChild(inp);
+  inp.onchange = async () => {
+    const file = inp.files && inp.files[0]; inp.remove();
+    if(!file) return;
+    const btn = cell.querySelector('button.btn'); btn.disabled = true;
+    const stat = statCell.querySelector('.stat'); uploading[job['작업코드']] = true; delete photoErr[job['작업코드']];
+    try{
+      const prev = stat.innerHTML;
+      stat.innerHTML = `<span class="chip"><span class="st 실행중">업로드 중</span></span>` + prev;
+      const { blob, mime } = await shrinkImage(file, STOCK_PHOTO_MAX_EDGE, STOCK_PHOTO_QUALITY);
+      const data = await toBase64(blob);
+      const res = await api({}, { action:'upload', code: job['작업코드'], mime, data });
+      if(res.ok){ mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); toast(`저장 완료 (${res.name}) — 계속 찍으려면 다시 누르세요`); }
+      else { toast('실패: ' + res.error); photoErr[job['작업코드']] = res.error || '알 수 없는 오류'; }
+    }catch(e){ toast('업로드 실패: ' + e.message); photoErr[job['작업코드']] = '전송 실패: ' + e.message; }
+    delete uploading[job['작업코드']]; btn.disabled = false;
+    refreshStatus();
+  };
+  inp.click();
+}
+
 // 사진 자르기: 가로 10 : 세로 7 틀을 띄워 위치·확대를 맞춘 뒤 그 부분만 잘라낸다 (긴 변 2000px 이하)
 // 브라우저가 못 읽는 형식(HEIC 등)은 자르지 못하므로 원본 그대로 올린다
 const CROP_W = 10, CROP_H = 7;
@@ -355,21 +385,21 @@ function cropPhoto(file){
   });
 }
 
-// (예전 방식, 지금은 쓰지 않음) 사진을 긴 변 2000px 이하로 줄여 JPEG 로 (PNG 는 PNG 유지). 브라우저가 못 읽는 형식(HEIC 등)은 원본 그대로 올린다
-function shrinkImage(file){
+// 사진을 긴 변 maxEdge 이하로 줄여 JPEG 로 (PNG 는 PNG 유지). 브라우저가 못 읽는 형식(HEIC 등)은 원본 그대로 올린다 (재고체크 사진촬영에서 사용)
+function shrinkImage(file, maxEdge = PHOTO_MAX_EDGE, quality = PHOTO_QUALITY){
   return new Promise(resolve => {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(url);
       const w = img.naturalWidth, h = img.naturalHeight, m = Math.max(w, h);
-      const s = m > PHOTO_MAX_EDGE ? PHOTO_MAX_EDGE / m : 1;
+      const s = m > maxEdge ? maxEdge / m : 1;
       const cw = Math.round(w * s), ch = Math.round(h * s);
       try{
         const c = document.createElement('canvas'); c.width = cw; c.height = ch;
         c.getContext('2d').drawImage(img, 0, 0, cw, ch);
         const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-        c.toBlob(b => resolve(b ? { blob: b, mime } : { blob: file, mime: file.type || 'image/jpeg' }), mime, PHOTO_QUALITY);
+        c.toBlob(b => resolve(b ? { blob: b, mime } : { blob: file, mime: file.type || 'image/jpeg' }), mime, quality);
       }catch(_){ resolve({ blob: file, mime: file.type || 'image/jpeg' }); }
     };
     img.onerror = () => { URL.revokeObjectURL(url); resolve({ blob: file, mime: file.type || 'image/jpeg' }); };
