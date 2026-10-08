@@ -37,7 +37,8 @@
   .L.gh { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .L.gh .btn { background:#111827; color:#fff; }   /* 그룹 전체 버튼은 검은 바탕·흰 글씨 */
   .L.gh .btn:hover { background:#374151; }
-  .gh.sp { padding-top:22px; }
+  .L.gh, .R.gh { padding-top:14px; padding-bottom:12px; }   /* 소제목 줄 위아래 여백 */
+  .gh.sp { padding-top:30px; }                               /* 두 번째 소제목부터는 앞 그룹과 더 띄움 */
   .R.gh .job { border-bottom:0; min-height:0; padding:6px 0 0; }
   .job { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px dashed var(--line); min-height:38px; }
   .lastrow .job { border-bottom:0; }
@@ -112,7 +113,8 @@
     .top { padding-top:10px; }
     .top h2 { font-size:13px; }
     .gh h3 { font-size:12px; margin:6px 0 2px; }
-    .gh.sp { padding-top:16px; }
+    .L.gh, .R.gh { padding-top:10px; padding-bottom:8px; }
+    .gh.sp { padding-top:22px; }
     .job { min-height:36px; gap:6px; padding:3px 0; }
     .L .name { font-size:12.5px; }
     .L .desc { display:none; }
