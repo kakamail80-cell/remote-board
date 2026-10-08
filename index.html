@@ -33,6 +33,10 @@
   .top h2 { font-size:14px; margin:0 0 6px; color:#374151; }
   .gh h3 { font-size:13px; margin:8px 0 2px; color:#111827; border-left:3px solid var(--pri); padding-left:7px; }
   .R.gh h3 { visibility:hidden; }
+  /* 소제목 줄: 왼쪽 = 소제목 (+ 그룹 전체 실행 버튼), 오른쪽 = 그 버튼의 진행 상황. 두 번째 소제목부터는 위에 여백을 둔다 */
+  .L.gh { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .gh.sp { padding-top:22px; }
+  .R.gh .job { border-bottom:0; min-height:0; padding:6px 0 0; }
   .job { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px dashed var(--line); min-height:38px; }
   .lastrow .job { border-bottom:0; }
   .L .name { flex:1; font-size:13.5px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -105,6 +109,7 @@
     .top { padding-top:10px; }
     .top h2 { font-size:13px; }
     .gh h3 { font-size:12px; margin:6px 0 2px; }
+    .gh.sp { padding-top:16px; }
     .job { min-height:36px; gap:6px; padding:3px 0; }
     .L .name { font-size:12.5px; }
     .L .desc { display:none; }
@@ -198,10 +203,21 @@ function renderJobs(jobs){
     const box = document.createElement('section'); box.className = 'sec'; b.appendChild(box);
     box.insertAdjacentHTML('beforeend', `<div class="L head"><h2>${esc(sec.title)}</h2></div><div class="R top"><h2>진행 상황 <span class="hint lastRefresh"></span></h2></div>`);
     const entries = Object.entries(groups);
-    entries.forEach(([g, list], gi) => {
+    entries.forEach(([g, all], gi) => {
+      // 파라미터 = '그룹' 인 작업은 줄을 따로 만들지 않고 소제목 오른쪽 끝에 버튼으로 붙인다 (예: 재고매칭 → 전체 자동실행)
+      const headJob = (g !== sec.title) ? all.find(j => j['파라미터'] === '그룹') : null;
+      const list = all.filter(j => j !== headJob);
+      const sp = gi ? ' sp' : '';   // 두 번째 소제목부터 위 여백
       // 주제 이름이 구역 제목과 같으면(예: 상품) 소제목은 생략
       if(g === sec.title) box.insertAdjacentHTML('beforeend', `<div class="L pad"></div><div class="R pad"></div>`);
-      else box.insertAdjacentHTML('beforeend', `<div class="L gh"><h3>${esc(g)}</h3></div><div class="R gh"><h3>.</h3></div>`);
+      else {
+        const Lh = document.createElement('div'); Lh.className = 'L gh' + sp;
+        Lh.innerHTML = `<h3>${esc(g)}</h3>` + (headJob ? `<button class="btn" title="${esc(headJob['설명']||'')}">${esc(headJob['버튼이름'])}</button>` : '');
+        const Rh = document.createElement('div'); Rh.className = 'R gh' + sp;
+        Rh.innerHTML = headJob ? `<div class="job stat" data-code="${esc(headJob['작업코드'])}"></div>` : `<h3>.</h3>`;
+        if(headJob) Lh.querySelector('button.btn').onclick = () => run(headJob, Lh);
+        box.appendChild(Lh); box.appendChild(Rh);
+      }
       list.forEach((j, i) => {
         const last = (gi === entries.length-1 && i === list.length-1) ? ' lastrow' : '';
         let paramHtml = '';
