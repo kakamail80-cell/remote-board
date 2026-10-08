@@ -35,6 +35,8 @@
   .R.gh h3 { visibility:hidden; }
   /* 소제목 줄: 왼쪽 = 소제목 (+ 그룹 전체 실행 버튼), 오른쪽 = 그 버튼의 진행 상황. 두 번째 소제목부터는 위에 여백을 둔다 */
   .L.gh { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .L.gh .btn { background:#111827; color:#fff; }   /* 그룹 전체 버튼은 검은 바탕·흰 글씨 */
+  .L.gh .btn:hover { background:#374151; }
   .gh.sp { padding-top:22px; }
   .R.gh .job { border-bottom:0; min-height:0; padding:6px 0 0; }
   .job { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px dashed var(--line); min-height:38px; }
