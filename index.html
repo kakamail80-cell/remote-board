@@ -52,6 +52,9 @@
   .L .job.haspar { flex-wrap:wrap; }
   .L .job.haspar .name { flex:1 1 100%; }
   .L .job.haspar .ctl { margin-left:auto; }
+  /* 하위 항목(A_1·A_2·A_3 처럼 상위 작업 아래 들여쓴 줄) — 2026-10-12 사장님 메뉴 수정 */
+  .L .job.sub .name { padding-left:18px; font-size:13px; }
+  .L .job.sub .name::before { content:'└'; color:#9ca3af; margin-right:5px; font-size:11px; }
   .L input[type=text] { padding:5px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; width:160px; }
   .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
   .seg button { background:#fff; color:var(--txt); border:0; padding:5px 10px; font-size:12.5px; cursor:pointer; }
@@ -99,6 +102,18 @@
   #crop .row { display:flex; gap:10px; }
   #crop .row button { border:0; border-radius:8px; padding:10px 22px; font-size:14px; cursor:pointer; }
   #crop .ok { background:var(--pri); color:#fff; } #crop .no { background:#374151; color:#fff; }
+  /* 촬영 가이드 (A_1 사진 촬영 → 적용): 찍을 매대와 샷 위치를 보여준 뒤 사진첩을 연다 */
+  #guide { position:fixed; inset:0; background:rgba(17,24,39,.6); z-index:50; display:none; align-items:center; justify-content:center; padding:16px; }
+  #guide.show { display:flex; }
+  #guide .box { background:#fff; border-radius:12px; max-width:420px; width:100%; padding:18px 18px 14px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
+  #guide h3 { margin:0 0 10px; font-size:15px; }
+  #guide .panels { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 12px; }
+  #guide .panels span { display:inline-block; min-width:34px; text-align:center; padding:6px 8px; border-radius:8px; background:#111827; color:#fff; font-weight:700; font-size:14px; }
+  #guide .panels .none { background:#e5e7eb; color:#374151; font-weight:400; font-size:12.5px; }
+  #guide .tip { color:var(--sub); font-size:11.5px; margin:0 0 12px; line-height:1.5; }
+  #guide .row { display:flex; gap:8px; justify-content:flex-end; }
+  #guide .row button { border:0; border-radius:8px; padding:9px 18px; font-size:13.5px; cursor:pointer; }
+  #guide .ok { background:#111827; color:#fff; } #guide .no { background:#e5e7eb; color:#374151; }
 
   #setup { max-width:520px; margin:60px auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
   #setup h2 { font-size:15px; margin:0 0 12px; color:#374151; }
@@ -164,6 +179,14 @@
   <input type="range" id="cropZoom" min="1" max="4" step="0.01" value="1">
   <div class="row"><button class="no" id="cropNo">취소</button><button class="ok" id="cropOk">저장</button></div>
 </div>
+<div id="guide">
+  <div class="box">
+    <h3>찍을 매대</h3>
+    <div class="panels" id="guidePanels"></div>
+    <p class="tip">위 매대마다 전체를 위·가운데·아래 3장으로 나눠, 각각 살짝 위에서 내려 찍으세요 (칸 라벨이 보이게). 카메라 앱으로 먼저 다 찍은 뒤 [사진 선택]에서 한 번에 고르세요.</p>
+    <div class="row"><button class="no" id="guideNo">닫기</button><button class="ok" id="guideOk">사진 선택</button></div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -192,6 +215,7 @@ async function init(){
     document.getElementById('who').textContent = res.user + ' 님';
     showRunner(res.runner_seen, res.runner_busy);
     document.getElementById('setup').style.display='none'; document.getElementById('board').style.display='block';
+    guidePanels = res.guide_panels || null;   // (예정) 시트가 주는 '찍을 매대' 목록 — 촬영 가이드에 표시
     renderJobs(res.jobs); refreshStatus();
     clearInterval(timer); timer = setInterval(refreshStatus, 10000);
   }catch(e){ toast('연결 실패: '+e.message); openSetup(); }
@@ -234,16 +258,19 @@ function renderJobs(jobs){
       list.forEach((j, i) => {
         const last = (gi === entries.length-1 && i === list.length-1) ? ' lastrow' : '';
         let paramHtml = '';
-        const isRange = j['파라미터']==='기간', isPhoto = j['파라미터']==='사진';
+        const par = j['파라미터'] || '';
+        const isRange = par==='기간', isPhoto = par==='사진';
+        // 하위 항목: '하위'(일반 실행) / '하위사진'(촬영 가이드 → 사진첩) / '하위목업'(버튼만, 아직 연결 안 됨)  — 2026-10-12
+        const isSub = par.startsWith('하위'), isShoot = par==='하위사진' || par==='그룹사진', isMock = par==='하위목업';
         if(isRange){ paramHtml = `<span class="seg" data-k="range"><button type="button" data-v="today" class="on">오늘</button><button type="button" data-v="week">일주일</button></span>`; }
         else if(j['파라미터']==='텍스트'){ paramHtml = `<input type="text" data-k="text" placeholder="${esc(j['설명']||'')}">`; }
         const L = document.createElement('div'); L.className = 'L' + last;
         const desc = (!isRange && j['설명']) ? `<div class="desc">${esc(j['설명'])}</div>` : '';
-        L.innerHTML = `<div class="job${paramHtml?' haspar':''}"><div class="name">${esc(j['버튼이름'])}${desc}</div><div class="ctl">${paramHtml}<button class="btn">적용</button></div></div>`;
+        L.innerHTML = `<div class="job${paramHtml?' haspar':''}${isSub?' sub':''}"><div class="name">${esc(j['버튼이름'])}${desc}</div><div class="ctl">${paramHtml}<button class="btn">적용</button></div></div>`;
         L.querySelectorAll('.seg button').forEach(b => b.onclick = () => { b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
         const R = document.createElement('div'); R.className = 'R' + last;
         R.innerHTML = `<div class="job stat" data-code="${esc(j['작업코드'])}"></div>`;
-        L.querySelector('button.btn').onclick = () => isPhoto ? pickPhoto(j, L, R) : run(j, L);
+        L.querySelector('button.btn').onclick = () => isPhoto ? pickPhoto(j, L, R) : isShoot ? shootGuide(j, L, R) : isMock ? toast(`'${j['버튼이름']}' 은 아직 사람이 하는 작업입니다 (버튼만 준비, 연결 예정)`) : run(j, L);
         box.appendChild(L); box.appendChild(R);
       });
     });
@@ -315,6 +342,17 @@ function pickPhoto(job, cell, statCell){
 //   권장 흐름: 카메라 앱으로 연속 촬영 → [사진촬영] → 사진첩에서 전부 선택 → 한 번에 순차 업로드 (진행 "3/10" 칩 표시)
 // → Apps Script 가 드라이브 4_재고체크사진 폴더에 저장하고 [재고체크사진] 탭에 기록, 보드에는 즉시 '완료' 칩
 // 수량 판독용이라 휴대폰 원본 해상도 그대로 올린다(줄이지 않음). 칸 라벨이 같이 보이게, 정면에서 찍는다.
+// [A_1 사진 촬영 ▸ 적용] → 찍을 매대 알파벳만 안내(2026-10-12 사장님: 3분할 설명은 따라 하기 더 힘듦, 매대마다 2~3장 일괄) → [사진 선택] 로 사진첩 다중 선택
+// 찍을 매대 목록은 시트에서 받을 수 있게 비워 둠(jobs 응답의 guide_panels) — 재고체크 대상코드↔칸코드 매칭(C_1 작업지시13) 뒤 연결. 지금은 '전체 매대'
+let guidePanels = null;
+function shootGuide(job, cell, statCell){
+  const g = document.getElementById('guide'), ps = document.getElementById('guidePanels');
+  ps.innerHTML = (guidePanels && guidePanels.length) ? guidePanels.map(p => `<span>${esc(p)}</span>`).join('') : `<span class="none">찍을 매대 목록은 재고체크 리스트 연결 뒤 여기에 표시 — 지금은 조사할 매대 전부</span>`;
+  g.classList.add('show');
+  document.getElementById('guideNo').onclick = () => g.classList.remove('show');
+  document.getElementById('guideOk').onclick = () => { g.classList.remove('show'); shootPhoto(job, cell, statCell); };
+}
+
 function shootPhoto(job, cell, statCell){
   const inp = document.createElement('input');
   inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.style.display = 'none';   // capture 를 빼야 사진첩 다중 선택이 가능
