@@ -337,13 +337,23 @@ function shootPhoto(job, cell, statCell){
       }catch(e){ fails.push(`${i + 1}번째: 전송 실패 (${e.message})`); }
     }
     if(fails.length) photoErr[job['작업코드']] = fails.join(' / ');
-    toast(fails.length ? `${okN}장 저장, ${fails.length}장 실패 — ${fails[0]}` : `${okN}장 저장 완료 — AI 판독을 시작합니다`);
-    // 업로드가 끝나면 서버가 사진을 1장씩 Gemini 로 판독해 [빈칸코드] 탭을 채운다 (한 장에 10~40초). 끊겨도 다음에 다시 누르면 남은 사진부터 이어서 판독
-    await aiLoop(job, stat, prev);
+    toast(fails.length ? `${okN}장 저장, ${fails.length}장 실패 — ${fails[0]}` : `${okN}장 저장 완료 — PC 에 AI 판독을 요청합니다`);
+    // 업로드가 끝나면 PC 러너 작업 STOCK_AI 를 등록한다 (2026-10-12 사장님 결정: 사진 정리·판정은 PC 에서, Gemini 는 Apps Script 경유)
+    //   PC 가 드라이브 동기화 사진을 조각내 라벨을 찾고 → 칸 사진으로 오려 중복 정리 → 확실한 빈칸만 [빈칸코드] 탭에 기록. 결과 칩은 「AI 빈칸 판독」 줄에 뜬다
+    if(okN) await enqueueAI();
     delete uploading[job['작업코드']]; btn.disabled = false;
     refreshStatus();
   };
   inp.click();
+}
+
+const STOCK_AI_CODE = 'STOCK_AI';
+async function enqueueAI(){
+  try{
+    const res = await api({}, { action:'enqueue', code: STOCK_AI_CODE, params:{} });
+    if(res.ok){ mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); toast('AI 판독 요청 등록 — PC 러너가 곧 처리합니다 (「AI 빈칸 판독」 줄 참고)'); }
+    else toast('AI 판독 요청 실패: ' + (res.error || ''));
+  }catch(e){ toast('AI 판독 요청 실패: ' + e.message); }
 }
 
 // {action:'aiNext'} 를 done 이 될 때까지 반복. 칩에 "AI 판독 n/N" 진행 표시, 끝나면 빈칸 합계 토스트
