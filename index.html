@@ -78,7 +78,8 @@
   .chip { display:inline-flex; align-items:flex-start; gap:6px; padding:4px 0 2px; margin-right:10px; white-space:nowrap; max-width:100%; }
   .L .job, .R .job { height:100%; }   /* 오른쪽 칩이 줄바꿈돼 줄이 높아져도 양쪽 내용이 세로 가운데 */
   .chip .b { position:relative; display:inline-flex; flex-direction:column; align-items:center; padding-right:5px; }
-  .chip .x { position:absolute; top:-6px; right:-2px; width:14px; height:14px; border-radius:50%; border:1px solid #fff; background:#374151; color:#fff; font-size:10px; line-height:12px; text-align:center; cursor:pointer; padding:0; }
+  .chip .x { position:absolute; top:-8px; right:-4px; width:34px; height:20px; border-radius:10px; border:1px solid #fff; background:#374151; color:#fff; font-size:15px; font-weight:700; line-height:18px; text-align:center; cursor:pointer; padding:0; }   /* 2026-10-16 사장님: 누르기 힘들어 2배·옆으로 길게 */
+  .chip .b { padding-right:26px; align-items:flex-start; }
   .chip .x:hover { background:var(--bad); }
   .chip.실행중 .x, .chip.중지요청 .x { background:var(--bad); }
   .chip .t { display:block; color:var(--sub); font-size:10px; line-height:12px; margin-top:2px; }
@@ -648,15 +649,52 @@ function chipHtml(q){
   return `<span class="chip ${esc(st)}"><span class="b"><span class="st ${esc(st)}">${esc(st)}</span><button class="x" data-id="${esc(q['ID'])}" data-st="${esc(st)}" title="${xTitle}">×</button><span class="t">${day}${fmt(when)}${range}</span></span>${files?`<span class="files">${files}</span>`:''}</span>`;
 }
 
+// 사진 업로드(STOCK_PHOTO)처럼 한 번에 여러 건이 쌓이는 작업은 끝난 건을 한 덩어리 칩으로: [완료 ×] 15:13~16:29 · 사진 16장 (X 하나로 전부 지움)
+//   (2026-10-16 사장님: 사진 개수대로 파일명이 붙으면 보기 안 좋고 지우기도 번거롭다 — 한 장씩 지울 일은 없음)
+const GROUPED = { STOCK_PHOTO: '사진' };
+function chipsHtml(code, list){
+  const unit = GROUPED[code];
+  if(!unit) return list.map(chipHtml).join('');
+  const done = list.filter(q => !['대기','실행중','중지요청'].includes(q['상태']));
+  const rest = list.filter(q => ['대기','실행중','중지요청'].includes(q['상태']));
+  let html = '';
+  if(done.length){
+    const times = done.map(q => q['종료시각'] || q['요청시각']).filter(Boolean).sort();
+    const first = fmt(times[0]), last = fmt(times[times.length-1]);
+    const when = (first && last && first !== last) ? `${first}~${last}` : (last || first);
+    const bad = done.filter(q => q['상태'] !== '완료').length;
+    const st = bad ? '실패' : '완료';
+    const label = bad ? `${unit} ${done.length}장 (실패 ${bad})` : `${unit} ${done.length}장`;
+    html += `<span class="chip ${st}"><span class="b"><span class="st ${st}">${st}</span><button class="x" data-ids="${esc(done.map(q => q['ID']).join(','))}" title="${unit} 기록 모두 지우기">×</button><span class="t">${when}</span></span><span class="files"><span>${esc(label)}</span></span></span>`;
+  }
+  return html + rest.map(chipHtml).join('');
+}
+// X 를 누르면 서버 응답을 기다리지 않고 칩을 바로 지운다(2026-10-16 사장님: 지워지는 반응이 느림).
+// 서버 삭제가 끝나기 전에 주기 갱신이 돌아도 되살아나지 않게 60초 동안 숨김 목록에 둔다
+const hiddenIds = new Map();   // id → 숨김 만료 시각(ms)
+function hideNow(ids){ const until = Date.now() + 60000; ids.forEach(id => hiddenIds.set(id, until)); document.querySelectorAll('.chip .x').forEach(x => { const mine = x.dataset.ids ? x.dataset.ids.split(',') : [x.dataset.id]; if(mine.some(id => ids.includes(id))) x.closest('.chip').remove(); }); }
+function isHidden(id){ const t = hiddenIds.get(id); if(!t) return false; if(Date.now() > t){ hiddenIds.delete(id); return false; } return true; }
+
+async function cancelMany(ids){
+  if(!confirm(`기록 ${ids.length}건 표시를 지울까요?`)) return;
+  hideNow(ids);
+  try{
+    const rs = await Promise.all(ids.map(id => api({}, {action:'cancel', id}).catch(e => ({ok:false, error:e.message}))));
+    const bad = rs.filter(r => !r.ok).length;
+    if(bad){ toast(`${bad}건은 못 지웠습니다`); ids.forEach(id => hiddenIds.delete(id)); refreshStatus(); }
+  }catch(e){ toast('요청 실패: '+e.message); ids.forEach(id => hiddenIds.delete(id)); refreshStatus(); }
+}
+
 // X 버튼: 대기 → 취소 / 실행중 → PC 러너에 중지 요청 / 끝난 건 → 표시 삭제
 async function cancelJob(id, st, code){
-  if(st==='실행중' || st==='중지요청'){ if(!confirm('실행 중인 작업을 중지할까요?\n(PC 에서 돌고 있는 프로그램을 강제로 끝냅니다)')) return; }
+  const running = (st==='실행중' || st==='중지요청');
+  if(running){ if(!confirm('실행 중인 작업을 중지할까요?\n(PC 에서 돌고 있는 프로그램을 강제로 끝냅니다)')) return; }
+  else hideNow([id]);                       // 대기 취소·표시 지우기는 바로 화면에서 제거
   try{
     const res = await api({}, {action:'cancel', id});
-    if(!res.ok){ toast('실패: '+res.error); return; }
-    toast(res.result==='중지요청' ? '중지 요청 — PC 러너가 곧 끊습니다 (안 멈추면 X 를 한 번 더)' : (res.result==='중지' ? '강제 종료 처리됨' : (res.result==='취소' ? '대기 취소됨' : '표시 지움')));
-    refreshStatus();
-  }catch(e){ toast('요청 실패: '+e.message); }
+    if(!res.ok){ toast('실패: '+res.error); hiddenIds.delete(id); refreshStatus(); return; }
+    if(running){ toast(res.result==='중지요청' ? '중지 요청 — PC 러너가 곧 끊습니다 (안 멈추면 X 를 한 번 더)' : '강제 종료 처리됨'); refreshStatus(); }
+  }catch(e){ toast('요청 실패: '+e.message); hiddenIds.delete(id); refreshStatus(); }
 }
 
 // 작업코드별 오늘 건을 같은 줄 오른쪽에 칩으로 (시트는 작업별 마지막 결과 1건 + 대기·실행중만 남긴다)
@@ -667,13 +705,13 @@ async function refreshStatus(){
     showRunner(res.runner_seen, res.runner_busy);
     // 작업코드별로 오늘 건을 시간순(먼저 누른 것이 앞)으로 모두 칩으로 표시: [완료 12:28 파일] [실행중 13:57 ×] [대기 14:04 ×] [대기 14:09 ×]
     const byCode = {};
-    res.queue.slice().reverse().forEach(q => { if(q['상태']==='취소') return; (byCode[q['작업코드']] = byCode[q['작업코드']] || []).push(q); });
+    res.queue.slice().reverse().forEach(q => { if(q['상태']==='취소' || isHidden(q['ID'])) return; (byCode[q['작업코드']] = byCode[q['작업코드']] || []).push(q); });
     document.querySelectorAll('.stat').forEach(el => {
       if(uploading[el.dataset.code]) return;
       const list = byCode[el.dataset.code] || [];
       const err = photoErr[el.dataset.code];
-      el.innerHTML = list.map(chipHtml).join('') + (err ? `<span class="chip"><span class="st 실패">업로드 실패</span><span class="uperr">${esc(err)}</span></span>` : '');
-      el.querySelectorAll('.x').forEach(x => x.onclick = () => cancelJob(x.dataset.id, x.dataset.st, el.dataset.code));
+      el.innerHTML = chipsHtml(el.dataset.code, list) + (err ? `<span class="chip"><span class="st 실패">업로드 실패</span><span class="uperr">${esc(err)}</span></span>` : '');
+      el.querySelectorAll('.x').forEach(x => x.onclick = () => x.dataset.ids ? cancelMany(x.dataset.ids.split(',')) : cancelJob(x.dataset.id, x.dataset.st, el.dataset.code));
     });
     document.querySelectorAll('.lastRefresh').forEach(lr => lr.textContent = '· ' + new Date().toLocaleTimeString('ko-KR') + ' 갱신');
   }catch(_){}
