@@ -83,7 +83,7 @@
   .chip.실행중 .x, .chip.중지요청 .x { background:var(--bad); }
   .chip .t { display:block; color:var(--sub); font-size:10px; line-height:12px; margin-top:2px; }
   .uperr { color:var(--bad); font-size:11px; white-space:normal; word-break:break-all; }
-  .chip.중지요청 .st::after { content:' → 중지 중'; }
+  .chip.중지요청 .st::after { content:' → 중지 중 (X 한 번 더 = 강제)'; }
 
   /* 사진 자르기 화면: 10:7 틀 안에서 사진을 끌어 위치를 맞추고, 슬라이더·두 손가락으로 확대 */
   #crop { position:fixed; inset:0; background:rgba(17,24,39,.92); z-index:50; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:16px; }
@@ -654,7 +654,7 @@ async function cancelJob(id, st, code){
   try{
     const res = await api({}, {action:'cancel', id});
     if(!res.ok){ toast('실패: '+res.error); return; }
-    toast(res.result==='중지요청' ? '중지 요청 — PC 러너가 곧 끊습니다' : (res.result==='취소' ? '대기 취소됨' : '표시 지움'));
+    toast(res.result==='중지요청' ? '중지 요청 — PC 러너가 곧 끊습니다 (안 멈추면 X 를 한 번 더)' : (res.result==='중지' ? '강제 종료 처리됨' : (res.result==='취소' ? '대기 취소됨' : '표시 지움')));
     refreshStatus();
   }catch(e){ toast('요청 실패: '+e.message); }
 }
