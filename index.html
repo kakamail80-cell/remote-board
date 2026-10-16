@@ -102,18 +102,30 @@
   #crop .row { display:flex; gap:10px; }
   #crop .row button { border:0; border-radius:8px; padding:10px 22px; font-size:14px; cursor:pointer; }
   #crop .ok { background:var(--pri); color:#fff; } #crop .no { background:#374151; color:#fff; }
-  /* 촬영 가이드 (A_1 사진 촬영 → 적용): 찍을 매대와 샷 위치를 보여준 뒤 사진첩을 연다 */
-  #guide { position:fixed; inset:0; background:rgba(17,24,39,.6); z-index:50; display:none; align-items:center; justify-content:center; padding:16px; }
-  #guide.show { display:flex; }
-  #guide .box { background:#fff; border-radius:12px; max-width:420px; width:100%; padding:18px 18px 14px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
-  #guide h3 { margin:0 0 10px; font-size:15px; }
-  #guide .panels { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 12px; }
-  #guide .panels span { display:inline-block; min-width:34px; text-align:center; padding:6px 8px; border-radius:8px; background:#111827; color:#fff; font-weight:700; font-size:14px; }
-  #guide .panels .none { background:#e5e7eb; color:#374151; font-weight:400; font-size:12.5px; }
-  #guide .tip { color:var(--sub); font-size:11.5px; margin:0 0 12px; line-height:1.5; }
-  #guide .row { display:flex; gap:8px; justify-content:flex-end; }
-  #guide .row button { border:0; border-radius:8px; padding:9px 18px; font-size:13.5px; cursor:pointer; }
-  #guide .ok { background:#111827; color:#fff; } #guide .no { background:#e5e7eb; color:#374151; }
+  /* 재고체크 카메라 (A_1 사진 촬영 → 적용, 2026-10-15 사장님 지시): 사진첩·가이드 팝업 없이 바로 촬영 화면.
+     위 = 실시간 카메라 + 셔터, 아래 = 매대 알파벳 A~T 고정 자리(2줄, 필요한 매대만 불 켜짐) + SEND.
+     알파벳을 누르고 3장 이상 연속 촬영 → 다음 알파벳 … → SEND 로 찍어 둔 사진 전부 한 번에 전송 */
+  #cam { position:fixed; inset:0; background:#000; z-index:60; display:none; flex-direction:column; height:100vh; height:100dvh; }
+  #cam.show { display:flex; }
+  #cam .view { position:relative; flex:1; min-height:0; overflow:hidden; background:#000; }
+  #cam video { width:100%; height:100%; object-fit:cover; display:block; }
+  #cam .top { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:10px 12px; background:linear-gradient(rgba(0,0,0,.55), transparent); color:#fff; font-size:13px; }
+  #cam .top .x { width:34px; height:34px; border-radius:50%; border:0; background:rgba(255,255,255,.2); color:#fff; font-size:18px; cursor:pointer; }
+  #cam .top .info { flex:1; text-align:right; text-shadow:0 1px 2px #000; }
+  #cam .shutter { position:absolute; left:50%; bottom:18px; transform:translateX(-50%); width:72px; height:72px; border-radius:50%; border:5px solid #fff; background:rgba(255,255,255,.35); cursor:pointer; padding:0; }
+  #cam .shutter:active { background:#fff; }
+  #cam .flash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .15s; }
+  #cam .flash.on { opacity:.8; transition:none; }
+  #cam .pad { background:#111827; padding:8px 8px 10px; padding-bottom:max(10px, env(safe-area-inset-bottom)); }
+  #cam .keys { display:grid; grid-template-columns:repeat(10, 1fr); grid-template-rows:repeat(2, 1fr); grid-auto-flow:column; gap:5px; margin-bottom:6px; }
+  #cam .key { position:relative; height:44px; border:0; border-radius:7px; background:#2b3140; color:#6b7280; font-size:16px; font-weight:700; cursor:pointer; padding:0; }
+  #cam .key.on { background:#fde047; color:#111827; }                       /* 불 켜진 알파벳 = 이번에 찍어야 할 매대 */
+  #cam .key.cur { outline:3px solid #fff; outline-offset:-3px; }            /* 지금 찍는 중인 매대 */
+  #cam .key .n { position:absolute; top:-6px; right:-4px; min-width:18px; height:18px; line-height:18px; border-radius:9px; background:#ef4444; color:#fff; font-size:11px; padding:0 4px; }
+  #cam .key .n.ok { background:#16a34a; }
+  #cam .send { width:100%; height:48px; border:0; border-radius:8px; background:#16a34a; color:#fff; font-size:17px; font-weight:800; letter-spacing:2px; cursor:pointer; }
+  #cam .send:disabled { background:#374151; color:#9ca3af; }
+  @media (max-width:420px){ #cam .key { height:40px; font-size:15px; } }
 
   #setup { max-width:520px; margin:60px auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
   #setup h2 { font-size:15px; margin:0 0 12px; color:#374151; }
@@ -179,12 +191,16 @@
   <input type="range" id="cropZoom" min="1" max="4" step="0.01" value="1">
   <div class="row"><button class="no" id="cropNo">취소</button><button class="ok" id="cropOk">저장</button></div>
 </div>
-<div id="guide">
-  <div class="box">
-    <h3>찍을 매대</h3>
-    <div class="panels" id="guidePanels"></div>
-    <p class="tip">위 매대마다 전체를 위·가운데·아래 3장으로 나눠, 각각 살짝 위에서 내려 찍으세요 (칸 라벨이 보이게). 카메라 앱으로 먼저 다 찍은 뒤 [사진 선택]에서 한 번에 고르세요.</p>
-    <div class="row"><button class="no" id="guideNo">닫기</button><button class="ok" id="guideOk">사진 선택</button></div>
+<div id="cam">
+  <div class="view">
+    <video id="camVideo" autoplay playsinline muted></video>
+    <div class="flash" id="camFlash"></div>
+    <div class="top"><button class="x" id="camClose" title="닫기">✕</button><span class="info" id="camInfo"></span></div>
+    <button class="shutter" id="camShot" title="촬영"></button>
+  </div>
+  <div class="pad">
+    <div class="keys" id="camKeys"></div>
+    <button class="send" id="camSend">SEND</button>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -270,7 +286,7 @@ function renderJobs(jobs){
         L.querySelectorAll('.seg button').forEach(b => b.onclick = () => { b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
         const R = document.createElement('div'); R.className = 'R' + last;
         R.innerHTML = `<div class="job stat" data-code="${esc(j['작업코드'])}"></div>`;
-        L.querySelector('button.btn').onclick = () => isPhoto ? pickPhoto(j, L, R) : isShoot ? shootGuide(j, L, R) : isMock ? toast(`'${j['버튼이름']}' 은 아직 사람이 하는 작업입니다 (버튼만 준비, 연결 예정)`) : run(j, L);
+        L.querySelector('button.btn').onclick = () => isPhoto ? pickPhoto(j, L, R) : isShoot ? openCamera(j, L, R) : isMock ? toast(`'${j['버튼이름']}' 은 아직 사람이 하는 작업입니다 (버튼만 준비, 연결 예정)`) : run(j, L);
         box.appendChild(L); box.appendChild(R);
       });
     });
@@ -342,47 +358,116 @@ function pickPhoto(job, cell, statCell){
 //   권장 흐름: 카메라 앱으로 연속 촬영 → [사진촬영] → 사진첩에서 전부 선택 → 한 번에 순차 업로드 (진행 "3/10" 칩 표시)
 // → Apps Script 가 드라이브 4_재고체크사진 폴더에 저장하고 [재고체크사진] 탭에 기록, 보드에는 즉시 '완료' 칩
 // 수량 판독용이라 휴대폰 원본 해상도 그대로 올린다(줄이지 않음). 칸 라벨이 같이 보이게, 정면에서 찍는다.
-// [A_1 사진 촬영 ▸ 적용] → 찍을 매대 알파벳만 안내(2026-10-12 사장님: 3분할 설명은 따라 하기 더 힘듦, 매대마다 2~3장 일괄) → [사진 선택] 로 사진첩 다중 선택
-// 찍을 매대 목록은 시트에서 받을 수 있게 비워 둠(jobs 응답의 guide_panels) — 재고체크 대상코드↔칸코드 매칭(C_1 작업지시13) 뒤 연결. 지금은 '전체 매대'
-let guidePanels = null;
-function shootGuide(job, cell, statCell){
-  const g = document.getElementById('guide'), ps = document.getElementById('guidePanels');
-  ps.innerHTML = (guidePanels && guidePanels.length) ? guidePanels.map(p => `<span>${esc(p)}</span>`).join('') : `<span class="none">찍을 매대 목록은 재고체크 리스트 연결 뒤 여기에 표시 — 지금은 조사할 매대 전부</span>`;
-  g.classList.add('show');
-  document.getElementById('guideNo').onclick = () => g.classList.remove('show');
-  document.getElementById('guideOk').onclick = () => { g.classList.remove('show'); shootPhoto(job, cell, statCell); };
-}
+// ---------- 재고체크 사진 촬영 (A_1) ----------
+// [A_1 ▸ 적용] → 바로 카메라 화면 (2026-10-15 사장님 지시: 가이드 팝업·사진첩 단계 없이, 한 장씩 올리지 않고 SEND 로 한 번에)
+//   아래 알파벳 A~T 는 자리가 고정. 찍어야 할 매대(jobs 응답 guide_panels — 사입리스트↔칸코드 매칭 뒤 연결)만 불이 켜진다.
+//   리스트가 없으면 아무 알파벳도 안 켜지고 SEND 만 켜짐 — 그래도 촬영·전송은 된다 (리스트 없이 재고 체크할 때)
+//   알파벳 누르고 3장 이상 연속 촬영(원하는 만큼) → 다음 알파벳 … → SEND → 찍은 사진 전부 순차 업로드 → STOCK_AI 등록
+//   사진 파일명에 매대 글자가 붙는다(재고체크_날짜_시각_A.jpg) → PC 판독이 그 매대 라벨만 믿도록 쓸 수 있음
+//   카메라를 못 열면(권한 거부·PC 등) 사진첩 선택(shootPhoto)으로 대신
+const PANELS = 'ABCDEFGHIJKLMNOPQRST'.split('');
+const MIN_SHOTS = 3;
+let guidePanels = null;   // ['A','C',…] 또는 null
+let cam = null;           // { job, cell, statCell, stream, ic, shots:[{blob,mime,cell}], cur }
 
+async function openCamera(job, cell, statCell){
+  const box = document.getElementById('cam'), v = document.getElementById('camVideo');
+  cam = { job, cell, statCell, stream:null, ic:null, shots:[], cur:'' };
+  camRenderKeys(); camInfo();
+  box.classList.add('show');
+  try{
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('이 브라우저는 카메라를 지원하지 않습니다');
+    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' }, width:{ ideal:4096 }, height:{ ideal:3072 } }, audio:false });
+    cam.stream = stream; v.srcObject = stream;
+    try{ await v.play(); }catch(_){}
+    if(window.ImageCapture){ try{ cam.ic = new ImageCapture(stream.getVideoTracks()[0]); }catch(_){ cam.ic = null; } }   // 안드로이드: 원본 해상도 촬영
+  }catch(e){
+    camStop(); box.classList.remove('show'); cam = null;
+    toast('카메라를 열 수 없어 사진첩에서 고릅니다 (' + e.message + ')');
+    shootPhoto(job, cell, statCell);
+  }
+}
+function camStop(){ try{ cam && cam.stream && cam.stream.getTracks().forEach(t => t.stop()); }catch(_){} const v = document.getElementById('camVideo'); if(v) v.srcObject = null; }
+function camRenderKeys(){
+  const k = document.getElementById('camKeys'); if(!cam) return;
+  const lit = new Set((guidePanels || []).map(p => String(p).toUpperCase()));
+  k.innerHTML = PANELS.map(p => {
+    const n = cam.shots.filter(s => s.cell === p).length;
+    return `<button type="button" class="key${lit.has(p) ? ' on' : ''}${cam.cur === p ? ' cur' : ''}" data-p="${p}">${p}${n ? `<span class="n${n >= MIN_SHOTS ? ' ok' : ''}">${n}</span>` : ''}</button>`;
+  }).join('');
+  k.querySelectorAll('.key').forEach(b => b.onclick = () => { cam.cur = b.dataset.p; camRenderKeys(); camInfo(); });
+}
+function camInfo(){
+  if(!cam) return;
+  const n = cam.shots.filter(s => s.cell === cam.cur).length, total = cam.shots.length;
+  document.getElementById('camInfo').textContent = (cam.cur ? `매대 ${cam.cur}: ${n}장 (3장 이상)` : '매대를 누르고 찍으세요') + ` · 전체 ${total}장`;
+  document.getElementById('camSend').textContent = total ? `SEND  (${total}장)` : 'SEND';
+}
+async function camShoot(){
+  if(!cam || !cam.stream) return;
+  const v = document.getElementById('camVideo'), f = document.getElementById('camFlash');
+  f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 120);
+  let blob = null;
+  if(cam.ic){ try{ blob = await cam.ic.takePhoto(); }catch(_){ blob = null; } }
+  if(!blob){
+    const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+    if(!c.width){ toast('카메라 준비 중입니다. 잠시 뒤 다시 누르세요'); return; }
+    c.getContext('2d').drawImage(v, 0, 0);
+    blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+  }
+  cam.shots.push({ blob, mime: blob.type || 'image/jpeg', cell: cam.cur });
+  camRenderKeys(); camInfo();
+}
+document.getElementById('camShot').onclick = camShoot;
+document.getElementById('camClose').onclick = () => {
+  if(!cam) return;
+  if(cam.shots.length && !confirm(`찍어 둔 ${cam.shots.length}장을 버리고 닫을까요?`)) return;
+  camStop(); document.getElementById('cam').classList.remove('show'); cam = null;
+};
+document.getElementById('camSend').onclick = async () => {
+  if(!cam) return;
+  if(!cam.shots.length){ toast('찍은 사진이 없습니다'); return; }
+  const short = PANELS.filter(p => { const n = cam.shots.filter(s => s.cell === p).length; return n && n < MIN_SHOTS; });
+  if(short.length && !confirm(`매대 ${short.join(', ')} 은 ${MIN_SHOTS}장이 안 됩니다. 그래도 전송할까요?`)) return;
+  if(!confirm(`${cam.shots.length}장을 전송할까요?`)) return;
+  const { job, cell, statCell, shots } = cam;
+  camStop(); document.getElementById('cam').classList.remove('show'); cam = null;
+  await uploadStockPhotos(job, cell, statCell, shots);
+};
+
+// 사진첩 선택 (카메라를 못 열 때의 대체 경로). 여러 장 선택 가능, 매대 글자는 안 붙음
 function shootPhoto(job, cell, statCell){
   const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.style.display = 'none';   // capture 를 빼야 사진첩 다중 선택이 가능
+  inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.style.display = 'none';
   document.body.appendChild(inp);
   inp.onchange = async () => {
     const files = [...(inp.files || [])]; inp.remove();
     if(!files.length) return;
-    const btn = cell.querySelector('button.btn'); btn.disabled = true;
-    const stat = statCell.querySelector('.stat'); uploading[job['작업코드']] = true; delete photoErr[job['작업코드']];
-    const prev = stat.innerHTML; let okN = 0; const fails = [];
-    for(let i = 0; i < files.length; i++){
-      const file = files[i];
-      stat.innerHTML = `<span class="chip"><span class="st 실행중">업로드 ${i + 1}/${files.length}</span></span>` + prev;
-      try{
-        const mime = file.type || 'image/jpeg';   // 원본 그대로. 15MB 넘으면 서버가 거절
-        const data = await toBase64(file);
-        const res = await api({}, { action:'upload', code: job['작업코드'], mime, data });
-        if(res.ok){ okN++; mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); }
-        else fails.push(`${i + 1}번째: ${res.error || '알 수 없는 오류'}`);
-      }catch(e){ fails.push(`${i + 1}번째: 전송 실패 (${e.message})`); }
-    }
-    if(fails.length) photoErr[job['작업코드']] = fails.join(' / ');
-    toast(fails.length ? `${okN}장 저장, ${fails.length}장 실패 — ${fails[0]}` : `${okN}장 저장 완료 — PC 에 AI 판독을 요청합니다`);
-    // 업로드가 끝나면 PC 러너 작업 STOCK_AI 를 등록한다 (2026-10-12 사장님 결정: 사진 정리·판정은 PC 에서, Gemini 는 Apps Script 경유)
-    //   PC 가 드라이브 동기화 사진을 조각내 라벨을 찾고 → 칸 사진으로 오려 중복 정리 → 확실한 빈칸만 [빈칸코드] 탭에 기록. 결과 칩은 「AI 빈칸 판독」 줄에 뜬다
-    if(okN) await enqueueAI();
-    delete uploading[job['작업코드']]; btn.disabled = false;
-    refreshStatus();
+    await uploadStockPhotos(job, cell, statCell, files.map(f => ({ blob: f, mime: f.type || 'image/jpeg', cell: '' })));
   };
   inp.click();
+}
+
+// 찍어 둔 사진을 순차 업로드("n/N" 칩) → 드라이브 4_재고체크사진 + [재고체크사진] 탭 → 끝나면 STOCK_AI 등록
+async function uploadStockPhotos(job, cell, statCell, shots){
+  const btn = cell.querySelector('button.btn'); btn.disabled = true;
+  const stat = statCell.querySelector('.stat'); uploading[job['작업코드']] = true; delete photoErr[job['작업코드']];
+  const prev = stat.innerHTML; let okN = 0; const fails = [];
+  for(let i = 0; i < shots.length; i++){
+    const s = shots[i];
+    stat.innerHTML = `<span class="chip"><span class="st 실행중">업로드 ${i + 1}/${shots.length}</span></span>` + prev;
+    try{
+      const data = await toBase64(s.blob);   // 원본 그대로. 15MB 넘으면 서버가 거절
+      const res = await api({}, { action:'upload', code: job['작업코드'], mime: s.mime, data, cell: s.cell || '' });
+      if(res.ok){ okN++; mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); }
+      else fails.push(`${i + 1}번째: ${res.error || '알 수 없는 오류'}`);
+    }catch(e){ fails.push(`${i + 1}번째: 전송 실패 (${e.message})`); }
+  }
+  if(fails.length) photoErr[job['작업코드']] = fails.join(' / ');
+  toast(fails.length ? `${okN}장 저장, ${fails.length}장 실패 — ${fails[0]}` : `${okN}장 저장 완료 — PC 에 AI 판독을 요청합니다`);
+  if(okN) await enqueueAI();   // PC 러너가 사진을 정리·판정 → [빈칸코드]. 결과 칩은 「A_2 빈칸 판독 및 적용」 줄
+  delete uploading[job['작업코드']]; btn.disabled = false;
+  refreshStatus();
 }
 
 const STOCK_AI_CODE = 'STOCK_AI';
