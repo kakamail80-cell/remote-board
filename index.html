@@ -78,9 +78,9 @@
   .chip { display:inline-flex; align-items:flex-start; gap:6px; padding:4px 0 2px; margin-right:10px; white-space:nowrap; max-width:100%; }
   .L .job, .R .job { height:100%; }   /* 오른쪽 칩이 줄바꿈돼 줄이 높아져도 양쪽 내용이 세로 가운데 */
   .chip .b { position:relative; display:inline-flex; flex-direction:column; align-items:center; padding-right:5px; }
-  .chip .x { position:absolute; top:-7px; right:-3px; width:17px; height:17px; border-radius:50%; border:1px solid #fff; background:#374151; color:#fff; font-size:12px; line-height:15px; text-align:center; cursor:pointer; padding:0; }   /* 2026-10-16 사장님: 동그란 게 더 예쁨 → 원래 동그라미(14px)에서 20% 키움 */
-  .chip .b { padding-right:7px; }
-  .chip .x:hover { background:var(--bad); }
+  .chip .x { position:absolute; top:-8px; right:-4px; width:19px; height:19px; border-radius:50%; border:1px solid #fff; background:var(--bad); color:#fff; font-size:13px; line-height:17px; text-align:center; cursor:pointer; padding:0; }   /* 2026-10-16 사장님: 동그란 게 더 예쁨 → 14px → 17px → 19px, 빨강 */
+  .chip .b { padding-right:8px; }
+  .chip .x:hover { background:#b91c1c; }
   .chip.실행중 .x, .chip.중지요청 .x { background:var(--bad); }
   .chip .t { display:block; color:var(--sub); font-size:10px; line-height:12px; margin-top:2px; }
   .uperr { color:var(--bad); font-size:11px; white-space:normal; word-break:break-all; }
