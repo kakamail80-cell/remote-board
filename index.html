@@ -105,27 +105,43 @@
   /* 재고체크 카메라 (A_1 사진 촬영 → 적용, 2026-10-15 사장님 지시): 사진첩·가이드 팝업 없이 바로 촬영 화면.
      위 = 실시간 카메라 + 셔터, 아래 = 매대 알파벳 A~T 고정 자리(2줄, 필요한 매대만 불 켜짐) + SEND.
      알파벳을 누르고 3장 이상 연속 촬영 → 다음 알파벳 … → SEND 로 찍어 둔 사진 전부 한 번에 전송 */
-  #cam { position:fixed; inset:0; background:#000; z-index:60; display:none; flex-direction:column; height:100vh; height:100dvh; }
+  /* 카메라 화면 — 가로(눕힌) 기본: [알파벳 세로 2열 | 화면 | 셔터]. ⇄ 로 알파벳/셔터 좌우 바꿈. 세로로 들면 알파벳이 아래로 감 */
+  #cam { position:fixed; inset:0; background:#000; z-index:60; display:none; flex-direction:row; height:100vh; height:100dvh; }
   #cam.show { display:flex; }
-  #cam .view { position:relative; flex:1; min-height:0; overflow:hidden; background:#000; }
+  #cam.rev { flex-direction:row-reverse; }
+  #cam .view { position:relative; flex:1; min-width:0; min-height:0; overflow:hidden; background:#000; }
   #cam video { width:100%; height:100%; object-fit:cover; display:block; }
-  #cam .top { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:10px 12px; background:linear-gradient(rgba(0,0,0,.55), transparent); color:#fff; font-size:13px; }
-  #cam .top .x { width:34px; height:34px; border-radius:50%; border:0; background:rgba(255,255,255,.2); color:#fff; font-size:18px; cursor:pointer; }
+  #cam .top { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:8px 10px; background:linear-gradient(rgba(0,0,0,.55), transparent); color:#fff; font-size:13px; pointer-events:none; }
+  #cam .top .x { width:34px; height:34px; border-radius:50%; border:0; background:rgba(255,255,255,.2); color:#fff; font-size:18px; cursor:pointer; pointer-events:auto; }
   #cam .top .info { flex:1; text-align:right; text-shadow:0 1px 2px #000; }
-  #cam .shutter { position:absolute; left:50%; bottom:18px; transform:translateX(-50%); width:72px; height:72px; border-radius:50%; border:5px solid #fff; background:rgba(255,255,255,.35); cursor:pointer; padding:0; }
-  #cam .shutter:active { background:#fff; }
   #cam .flash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .15s; }
   #cam .flash.on { opacity:.8; transition:none; }
-  #cam .pad { background:#111827; padding:8px 8px 10px; padding-bottom:max(10px, env(safe-area-inset-bottom)); }
-  #cam .keys { display:grid; grid-template-columns:repeat(10, 1fr); grid-template-rows:repeat(2, 1fr); grid-auto-flow:column; gap:5px; margin-bottom:6px; }
-  #cam .key { position:relative; height:44px; border:0; border-radius:7px; background:#2b3140; color:#6b7280; font-size:16px; font-weight:700; cursor:pointer; padding:0; }
+  #cam .side { position:relative; width:96px; flex:none; background:#0b0f19; display:flex; align-items:center; justify-content:center; }
+  #cam .shutter { width:66px; height:66px; border-radius:50%; border:5px solid #fff; background:rgba(255,255,255,.35); cursor:pointer; padding:0; }
+  #cam .shutter:active { background:#fff; }
+  #cam .swap { position:absolute; top:6px; right:6px; width:28px; height:22px; border:0; border-radius:6px; background:rgba(255,255,255,.18); color:#e5e7eb; font-size:14px; line-height:22px; cursor:pointer; padding:0; }
+  #cam.rev .swap { right:auto; left:6px; }
+  #cam .pad { flex:none; width:118px; background:#111827; display:flex; flex-direction:column; padding:6px 6px; padding-bottom:max(6px, env(safe-area-inset-bottom)); }
+  #cam .keys { flex:1; min-height:0; display:grid; grid-template-columns:repeat(2, 1fr); grid-template-rows:repeat(10, 1fr); grid-auto-flow:row; gap:4px; margin-bottom:5px; }
+  #cam .key { position:relative; height:auto; min-height:0; border:0; border-radius:6px; background:#2b3140; color:#6b7280; font-size:15px; font-weight:700; cursor:pointer; padding:0; }
   #cam .key.on { background:#fde047; color:#111827; }                       /* 불 켜진 알파벳 = 이번에 찍어야 할 매대 */
   #cam .key.cur { outline:3px solid #fff; outline-offset:-3px; }            /* 지금 찍는 중인 매대 */
-  #cam .key .n { position:absolute; top:-6px; right:-4px; min-width:18px; height:18px; line-height:18px; border-radius:9px; background:#ef4444; color:#fff; font-size:11px; padding:0 4px; }
+  #cam .key .n { position:absolute; top:-5px; right:-3px; min-width:16px; height:16px; line-height:16px; border-radius:8px; background:#ef4444; color:#fff; font-size:10px; padding:0 3px; }
   #cam .key .n.ok { background:#16a34a; }
-  #cam .send { width:100%; height:48px; border:0; border-radius:8px; background:#16a34a; color:#fff; font-size:17px; font-weight:800; letter-spacing:2px; cursor:pointer; }
+  #cam .send { flex:none; width:100%; height:42px; border:0; border-radius:8px; background:#16a34a; color:#fff; font-size:14px; font-weight:800; letter-spacing:1px; cursor:pointer; }
   #cam .send:disabled { background:#374151; color:#9ca3af; }
-  @media (max-width:420px){ #cam .key { height:40px; font-size:15px; } }
+  /* 세로로 들었을 때: 화면 위, 알파벳 10열×2행 아래, 셔터는 화면 위에 겹침 */
+  @media (orientation: portrait){
+    #cam, #cam.rev { flex-direction:column; }
+    #cam .view { order:1; }
+    #cam .pad { order:2; width:auto; padding:8px 8px 10px; padding-bottom:max(10px, env(safe-area-inset-bottom)); }
+    #cam .keys { flex:none; grid-template-columns:repeat(10, 1fr); grid-template-rows:repeat(2, 1fr); grid-auto-flow:column; gap:5px; margin-bottom:6px; }
+    #cam .key { height:42px; }
+    #cam .send { height:46px; font-size:16px; letter-spacing:2px; }
+    #cam .side { position:absolute; left:0; right:0; bottom:calc(8px + 42px*2 + 5px + 6px + 46px + max(10px, env(safe-area-inset-bottom))); width:auto; height:0; background:transparent; overflow:visible; z-index:2; }
+    #cam .shutter { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); }
+    #cam .swap { display:none; }
+  }
 
   #setup { max-width:520px; margin:60px auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
   #setup h2 { font-size:15px; margin:0 0 12px; color:#374151; }
@@ -192,15 +208,18 @@
   <div class="row"><button class="no" id="cropNo">취소</button><button class="ok" id="cropOk">저장</button></div>
 </div>
 <div id="cam">
+  <div class="pad">
+    <div class="keys" id="camKeys"></div>
+    <button class="send" id="camSend">SEND</button>
+  </div>
   <div class="view">
     <video id="camVideo" autoplay playsinline muted></video>
     <div class="flash" id="camFlash"></div>
     <div class="top"><button class="x" id="camClose" title="닫기">✕</button><span class="info" id="camInfo"></span></div>
-    <button class="shutter" id="camShot" title="촬영"></button>
   </div>
-  <div class="pad">
-    <div class="keys" id="camKeys"></div>
-    <button class="send" id="camSend">SEND</button>
+  <div class="side">
+    <button class="swap" id="camSwap" title="알파벳/촬영 버튼 좌우 바꾸기">⇄</button>
+    <button class="shutter" id="camShot" title="촬영"></button>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -370,11 +389,21 @@ const MIN_SHOTS = 3;
 let guidePanels = null;   // ['A','C',…] 또는 null
 let cam = null;           // { job, cell, statCell, stream, ic, shots:[{blob,mime,cell}], cur }
 
+// 가로 화면 기본: 알파벳 세로 2열(AB/CD/…)이 왼쪽, 셔터가 오른쪽. 오른쪽 위 ⇄ 로 좌우를 바꾸고 그 선택은 기억한다
+function camApplySide(){ let rev = false; try{ rev = localStorage.getItem('camRev') === '1'; }catch(_){} document.getElementById('cam').classList.toggle('rev', rev); }
+document.getElementById('camSwap').onclick = () => { let rev = false; try{ rev = localStorage.getItem('camRev') === '1'; localStorage.setItem('camRev', rev ? '0' : '1'); }catch(_){} camApplySide(); };
+async function camLockLandscape(){   // 가능한 기기에서만(안드로이드 전체화면) 가로로 고정 — 안 되면 그냥 지나감
+  try{ const el = document.getElementById('cam'); if(el.requestFullscreen) await el.requestFullscreen({ navigationUI:'hide' }); }catch(_){}
+  try{ if(screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); }catch(_){}
+}
+function camUnlock(){ try{ screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); }catch(_){} try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(_){} }
+
 async function openCamera(job, cell, statCell){
   const box = document.getElementById('cam'), v = document.getElementById('camVideo');
   cam = { job, cell, statCell, stream:null, ic:null, shots:[], cur:'' };
-  camRenderKeys(); camInfo();
+  camApplySide(); camRenderKeys(); camInfo();
   box.classList.add('show');
+  camLockLandscape();
   try{
     if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('이 브라우저는 카메라를 지원하지 않습니다');
     const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' }, width:{ ideal:4096 }, height:{ ideal:3072 } }, audio:false });
@@ -387,7 +416,7 @@ async function openCamera(job, cell, statCell){
     shootPhoto(job, cell, statCell);
   }
 }
-function camStop(){ try{ cam && cam.stream && cam.stream.getTracks().forEach(t => t.stop()); }catch(_){} const v = document.getElementById('camVideo'); if(v) v.srcObject = null; }
+function camStop(){ try{ cam && cam.stream && cam.stream.getTracks().forEach(t => t.stop()); }catch(_){} const v = document.getElementById('camVideo'); if(v) v.srcObject = null; camUnlock(); }
 function camRenderKeys(){
   const k = document.getElementById('camKeys'); if(!cam) return;
   const lit = new Set((guidePanels || []).map(p => String(p).toUpperCase()));
