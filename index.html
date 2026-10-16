@@ -387,6 +387,50 @@ function pickPhoto(job, cell, statCell){
 //   카메라를 못 열면(권한 거부·PC 등) 사진첩 선택(shootPhoto)으로 대신
 const PANELS = 'ABCDEFGHIJKLMNOPQRST'.split('');
 const MIN_SHOTS = 3;
+// 흐린 사진은 찍는 자리에서 바로 버린다 (2026-10-16 사장님 제안: 뭉개진 사진은 판독 전에 삭제)
+//   선명도 = 긴 변 ≈1000px 로 상자 평균 축소한 흑백의 라플라시안 분산(PC stock_ai.py 와 같은 계산, 오차 0.5% 이내).
+//   10/16 매대 사진 11장 1460~3460, 책상 시험샷 ≈230, 가우시안 σ3(글자 안 읽힘) 294, 흔들림 15px(안 읽힘) 748,
+//   σ1.7(흐릿하지만 읽힘) 1190 → 1000 미만이면 버림. 같은 매대에서 3번 연속 흐리면(조명 등으로 기준이 안 맞는 경우)
+//   보관하고 PC 판독의 2차 검사에 맡긴다
+const BLUR_MIN = 1000;
+async function sharpness(blob){
+  try{
+    let src = null;
+    if(window.createImageBitmap){ try{ src = await createImageBitmap(blob); }catch(_){ src = null; } }
+    if(!src){
+      src = await new Promise((ok, no) => { const im = new Image(); const u = URL.createObjectURL(blob);
+        im.onload = () => { URL.revokeObjectURL(u); ok(im); }; im.onerror = () => { URL.revokeObjectURL(u); no(new Error('decode')); }; im.src = u; });
+    }
+    let w = src.width || src.naturalWidth, h = src.height || src.naturalHeight;
+    if(!w || !h) return -1;
+    // 브라우저 축소(drawImage)는 기종마다 뭉개는 정도가 달라 값이 흔들림 → 원본 화소를 받아 k×k 칸 평균(상자 평균)으로 직접 줄인다
+    //   = PC 쪽 cv2.resize(INTER_AREA, 정수 배율) 과 같은 계산. 1600만 화소 넘는 원본만 먼저 절반으로(사파리 캔버스 한도)
+    let cw = w, ch = h;
+    if(w * h > 16e6){ cw = Math.round(w / 2); ch = Math.round(h / 2); }
+    const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+    const x = c.getContext('2d', { willReadFrequently:true }); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, cw, ch);
+    if(src.close) src.close();
+    const d = x.getImageData(0, 0, cw, ch).data;
+    const k = Math.max(1, Math.round(Math.max(cw, ch) / 1000)), tw = Math.floor(cw / k), th = Math.floor(ch / k);
+    if(tw < 3 || th < 3) return -1;
+    const g = new Float32Array(tw * th), kk = k * k;
+    for(let y = 0; y < th * k; y++){
+      const gy = Math.floor(y / k) * tw; let j = (y * cw) * 4;
+      for(let xx = 0; xx < tw * k; xx++, j += 4) g[gy + Math.floor(xx / k)] += 0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2];
+    }
+    for(let i = 0; i < g.length; i++) g[i] /= kk;
+    c.width = c.height = 1;   // 큰 캔버스 메모리 바로 반납
+    let n = 0, sum = 0, sq = 0;
+    for(let y = 1; y < th - 1; y++){
+      for(let xx = 1; xx < tw - 1; xx++){
+        const i = y * tw + xx, v = g[i - tw] + g[i + tw] + g[i - 1] + g[i + 1] - 4 * g[i];
+        sum += v; sq += v * v; n++;
+      }
+    }
+    if(!n) return -1;
+    const m = sum / n; return sq / n - m * m;
+  }catch(_){ return -1; }   // 측정 못 하면 통과시킨다
+}
 let guidePanels = null;   // ['A','C',…] 또는 null
 let cam = null;           // { job, cell, statCell, stream, ic, shots:[{blob,mime,cell}], cur }
 
@@ -445,7 +489,14 @@ async function camShoot(){
     c.getContext('2d').drawImage(v, 0, 0);
     blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
   }
-  cam.shots.push({ blob, mime: blob.type || 'image/jpeg', cell: cam.cur });
+  const sc = await sharpness(blob);
+  if(sc >= 0 && sc < BLUR_MIN){
+    cam.blur = (cam.blur || 0) + 1;
+    try{ navigator.vibrate && navigator.vibrate([80, 60, 80]); }catch(_){}
+    if(cam.blur < 3){ toast(`흐려서 버렸습니다 (선명도 ${Math.round(sc)}) — 다시 찍어 주세요`); return; }
+    toast(`흐림 의심이지만 보관합니다 (${Math.round(sc)}) — PC 판독에서 다시 거릅니다`);
+  } else cam.blur = 0;
+  cam.shots.push({ blob, mime: blob.type || 'image/jpeg', cell: cam.cur, sharp: sc });
   camRenderKeys(); camInfo();
 }
 document.getElementById('camShot').onclick = camShoot;
