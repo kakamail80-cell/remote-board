@@ -17,6 +17,9 @@
   header .runner { margin-left:auto; font-size:12.5px; padding:3px 10px; border-radius:999px; background:#374151; color:#e5e7eb; }
   header .runner.on { background:#065f46; color:#d1fae5; }
   header .runner.off { background:#7f1d1d; color:#fee2e2; }
+  header .runner .r { margin-left:10px; white-space:nowrap; }
+  header .runner .r:first-child { margin-left:0; }
+  header .runner .r.off { opacity:.6; }
   header .who { font-size:13px; color:#cbd5e1; }
   header button { background:#374151; color:#fff; border:0; border-radius:6px; padding:6px 10px; cursor:pointer; }
 
@@ -249,7 +252,7 @@ async function init(){
     const res = await api({action:'jobs'});
     if(!res.ok) { toast(res.error); return openSetup(); }
     document.getElementById('who').textContent = res.user + ' 님';
-    showRunner(res.runner_seen, res.runner_busy);
+    showRunner(res.runner_seen, res.runner_busy, res.runners, null);
     document.getElementById('setup').style.display='none'; document.getElementById('board').style.display='block';
     guidePanels = res.guide_panels || null;   // (예정) 시트가 주는 '찍을 매대' 목록 — 촬영 가이드에 표시
     renderJobs(res.jobs); refreshStatus();
@@ -659,8 +662,24 @@ function toBase64(blob){
 }
 
 // 러너 생존 표시: 60초 이내 접속이면 켜짐
-function showRunner(seen, busy){
+// 2026-10-18 2대 운영: 서버(v14)가 runners:{사무실:ms, 집:ms} 를 주면 러너별로 ● 켜짐 / ◐ 작업중 / ○ 꺼짐 을 나란히 표시
+function showRunner(seen, busy, runners, queue){
   const el = document.getElementById('runner'); if(!el) return;
+  if(runners && Object.keys(runners).length){
+    const names = ['사무실', '집']; Object.keys(runners).forEach(n => { if(!names.includes(n)) names.push(n); });
+    const busyBy = {}; (queue || []).forEach(q => { if(q['상태']==='실행중' || q['상태']==='중지요청') busyBy[q['러너'] || '사무실'] = true; });
+    el.textContent = ''; let anyOn = false;
+    names.forEach(n => {
+      const s = runners[n]; const ago = s ? (Date.now() - Number(s)) / 1000 : Infinity;
+      const st = busyBy[n] ? 'busy' : (ago < 60 ? 'on' : 'off'); if(st !== 'off') anyOn = true;
+      const sp = document.createElement('span'); sp.className = 'r ' + st;
+      sp.textContent = (st === 'busy' ? '◐ ' : st === 'on' ? '● ' : '○ ') + n;
+      sp.title = n + (st === 'busy' ? ' 러너 작업 실행 중' : st === 'on' ? ' 러너 켜짐' : (s ? ' 러너 꺼짐 · 마지막 ' + fmt(new Date(Number(s)).toISOString()) : ' 러너 꺼짐'));
+      el.appendChild(sp);
+    });
+    el.className = 'runner ' + (anyOn ? 'on' : 'off');
+    return;
+  }
   const ago = seen ? (Date.now() - Number(seen)) / 1000 : Infinity;
   if(busy){ el.className = 'runner on'; el.textContent = '● PC 러너 작업 실행 중'; }
   else if(ago < 60){ el.className = 'runner on'; el.textContent = '● PC 러너 켜짐'; }
@@ -753,7 +772,7 @@ async function refreshStatus(){
   try{
     const res = await api({action:'queue', n:50});
     if(!res.ok) return;
-    showRunner(res.runner_seen, res.runner_busy);
+    showRunner(res.runner_seen, res.runner_busy, res.runners, res.queue);
     // 작업코드별로 오늘 건을 시간순(먼저 누른 것이 앞)으로 모두 칩으로 표시: [완료 12:28 파일] [실행중 13:57 ×] [대기 14:04 ×] [대기 14:09 ×]
     const byCode = {};
     res.queue.slice().reverse().forEach(q => { if(q['상태']==='취소' || isHidden(q['ID'])) return; (byCode[q['작업코드']] = byCode[q['작업코드']] || []).push(q); });
