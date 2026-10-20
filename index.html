@@ -118,6 +118,9 @@
   #cam .top { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:10px; padding:8px 10px; background:linear-gradient(rgba(0,0,0,.55), transparent); color:#fff; font-size:13px; pointer-events:none; }
   #cam .top .x { width:34px; height:34px; border-radius:50%; border:0; background:rgba(255,255,255,.2); color:#fff; font-size:18px; cursor:pointer; pointer-events:auto; }
   #cam .top .info { flex:1; text-align:right; text-shadow:0 1px 2px #000; }
+  #cam .top .dt { height:30px; padding:0 10px; border-radius:15px; border:1px solid rgba(255,255,255,.5); background:rgba(0,0,0,.35); color:#fff; font-size:12px; cursor:pointer; pointer-events:auto; white-space:nowrap; }
+  #cam .top .dt.on { background:#059669; border-color:#059669; }
+  #cam .top .dt.bad { background:#b45309; border-color:#b45309; }
   #cam .flash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .15s; }
   #cam .flash.on { opacity:.8; transition:none; }
   #cam .side { position:relative; width:96px; flex:none; background:#0b0f19; display:flex; align-items:center; justify-content:center; }
@@ -219,7 +222,7 @@
   <div class="view">
     <video id="camVideo" autoplay playsinline muted></video>
     <div class="flash" id="camFlash"></div>
-    <div class="top"><button class="x" id="camClose" title="닫기">✕</button><span class="info" id="camInfo"></span></div>
+    <div class="top"><button class="x" id="camClose" title="닫기">✕</button><button class="dt" id="camDirect" title="직통 시험: 찍는 즉시 PC 로 바로 전송">직통 꺼짐</button><span class="info" id="camInfo"></span></div>
   </div>
   <div class="side">
     <button class="swap" id="camSwap" title="알파벳/촬영 버튼 좌우 바꾸기">⇄</button>
@@ -254,6 +257,7 @@ async function init(){
     document.getElementById('who').textContent = res.user + ' 님';
     showRunner(res.runner_seen, res.runner_busy, res.runners, null);
     document.getElementById('setup').style.display='none'; document.getElementById('board').style.display='block';
+    tunnelInfo = res.tunnel || null;   // 2026-10-20 직통: PC 사진 수신 서버 주소
     guidePanels = res.guide_panels || null;   // (예정) 시트가 주는 '찍을 매대' 목록 — 촬영 가이드에 표시
     renderJobs(res.jobs); refreshStatus();
     clearInterval(timer); timer = setInterval(refreshStatus, 10000);
@@ -448,8 +452,9 @@ function camUnlock(){ try{ screen.orientation && screen.orientation.unlock && sc
 
 async function openCamera(job, cell, statCell){
   const box = document.getElementById('cam'), v = document.getElementById('camVideo');
-  cam = { job, cell, statCell, stream:null, ic:null, shots:[], cur:'' };
+  cam = { job, cell, statCell, stream:null, ic:null, shots:[], cur:'', direct:null };
   camApplySide(); camRenderKeys(); camInfo();
+  directPrepare();
   box.classList.add('show');
   camLockLandscape();
   try{
@@ -477,7 +482,10 @@ function camRenderKeys(){
 function camInfo(){
   if(!cam) return;
   const n = cam.shots.filter(s => s.cell === cam.cur).length, total = cam.shots.length;
-  document.getElementById('camInfo').textContent = (cam.cur ? `매대 ${cam.cur}: ${n}장 (3장 이상)` : '매대를 누르고 찍으세요') + ` · 전체 ${total}장`;
+  let dt = '';
+  if(cam.direct){ const ok = cam.shots.filter(s => s.dst === 'ok').length, bad = cam.shots.filter(s => s.dst === 'fail').length;
+    dt = ` · PC ${ok}/${total}` + (bad ? ` (실패 ${bad})` : ''); }
+  document.getElementById('camInfo').textContent = (cam.cur ? `매대 ${cam.cur}: ${n}장 (3장 이상)` : '매대를 누르고 찍으세요') + ` · 전체 ${total}장` + dt;
   document.getElementById('camSend').textContent = total ? `SEND  (${total}장)` : 'SEND';
 }
 async function camShoot(){
@@ -499,7 +507,9 @@ async function camShoot(){
     if(cam.blur < 3){ toast(`흐려서 버렸습니다 (선명도 ${Math.round(sc)}) — 다시 찍어 주세요`); return; }
     toast(`흐림 의심이지만 보관합니다 (${Math.round(sc)}) — PC 판독에서 다시 거릅니다`);
   } else cam.blur = 0;
-  cam.shots.push({ blob, mime: blob.type || 'image/jpeg', cell: cam.cur, sharp: sc });
+  const shot = { blob, mime: blob.type || 'image/jpeg', cell: cam.cur, sharp: sc };
+  cam.shots.push(shot);
+  if(cam.direct) directQueue(cam.direct, shot);
   camRenderKeys(); camInfo();
 }
 document.getElementById('camShot').onclick = camShoot;
@@ -514,9 +524,10 @@ document.getElementById('camSend').onclick = async () => {
   const short = PANELS.filter(p => { const n = cam.shots.filter(s => s.cell === p).length; return n && n < MIN_SHOTS; });
   if(short.length && !confirm(`매대 ${short.join(', ')} 은 ${MIN_SHOTS}장이 안 됩니다. 그래도 전송할까요?`)) return;
   if(!confirm(`${cam.shots.length}장을 전송할까요?`)) return;
-  const { job, cell, statCell, shots } = cam;
+  const { job, cell, statCell, shots, direct } = cam;
   camStop(); document.getElementById('cam').classList.remove('show'); cam = null;
-  await uploadStockPhotos(job, cell, statCell, shots);
+  if(direct) await directSend(job, cell, statCell, shots, direct);
+  else await uploadStockPhotos(job, cell, statCell, shots);
 };
 
 // 사진첩 선택 (카메라를 못 열 때의 대체 경로). 여러 장 선택 가능, 매대 글자는 안 붙음
@@ -552,6 +563,115 @@ async function uploadStockPhotos(job, cell, statCell, shots){
   if(okN) await enqueueAI();   // PC 러너가 사진을 정리·판정 → [빈칸코드]. 결과 칩은 「A_2 빈칸 판독 및 적용」 줄
   delete uploading[job['작업코드']]; btn.disabled = false;
   refreshStatus();
+}
+
+// ---------- 직통 시험 (2026-10-20) ----------
+// PC(사무실)의 사진 수신 서버(photo_server.py)가 Cloudflare 터널 주소를 시트에 알려 두면(jobs 응답 tunnel),
+// 카메라에서 찍는 즉시 그 주소로 원본을 올린다 → PC 가 찍는 동안 판독을 시작 → SEND 하면 남은 것만 마무리.
+// 스위치가 꺼져 있거나 PC 가 안 보이면 예전 그대로(드라이브 업로드 → STOCK_AI). 직통이 실패한 사진만 드라이브로 다시 보낸다
+let tunnelInfo = null;
+function directWanted(){ try{ return localStorage.getItem('camDirect') === '1'; }catch(_){ return false; } }
+function directBtn(state, text){
+  const b = document.getElementById('camDirect'); if(!b) return;
+  b.classList.toggle('on', state === 'on'); b.classList.toggle('bad', state === 'bad'); b.textContent = text;
+}
+async function fetchT(url, opt, ms){
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms);
+  try{ return await fetch(url, Object.assign({}, opt || {}, { signal: ac.signal })); } finally { clearTimeout(t); }
+}
+async function directPrepare(){
+  if(!cam) return;
+  cam.direct = null;
+  if(!directWanted()){ directBtn('', '직통 꺼짐'); return; }
+  directBtn('', '직통 확인 중…');
+  const me = cam;
+  try{
+    const res = await api({ action:'jobs' });            // 터널 주소는 PC 를 다시 켜면 바뀌므로 카메라 열 때 새로 읽음
+    if(res && res.ok) tunnelInfo = res.tunnel || null;
+  }catch(_){}
+  const url = tunnelInfo && tunnelInfo.url ? String(tunnelInfo.url).replace(/\/+$/, '') : '';
+  if(!url){ if(me === cam) directBtn('bad', '직통 안 됨 (PC 주소 없음)'); return; }
+  try{
+    const r = await fetchT(url + '/ping', {}, 5000); const j = await r.json();
+    if(!j.ok) throw new Error(j.error || 'ping');
+    if(me !== cam || me.shots.length) return;           // 확인하는 사이 닫았거나 이미 찍기 시작했으면 이번엔 드라이브 경로
+    cam.direct = { url, sid: Date.now().toString(36) + Math.random().toString(36).slice(2, 8), chain: Promise.resolve() };
+    directBtn('on', '직통 켜짐 (PC ' + (j.runner || '') + ')');
+  }catch(e){ if(me === cam) directBtn('bad', '직통 안 됨 (PC 응답 없음)'); }
+  camInfo();
+}
+document.getElementById('camDirect').onclick = () => {
+  if(!cam) return;
+  if(cam.shots.length){ toast('찍기 시작한 뒤에는 바꿀 수 없습니다 (닫고 다시 여세요)'); return; }
+  try{ localStorage.setItem('camDirect', directWanted() ? '0' : '1'); }catch(_){}
+  directPrepare();
+};
+async function toJpeg(blob){   // 일부 기기는 PNG 로 찍힘 → 같은 해상도 JPEG(0.95)로 바꿔 보낸다 (PC 는 jpg 만 받음)
+  const bm = await createImageBitmap(blob);
+  const c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height;
+  c.getContext('2d').drawImage(bm, 0, 0); if(bm.close) bm.close();
+  const out = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.95)); c.width = c.height = 1;
+  if(!out) throw new Error('jpg 변환 실패'); return out;
+}
+async function directUpOne(d, s){
+  s.dst = 'up';
+  try{
+    if(!s.jpg) s.jpg = /jpe?g/i.test(s.mime || 'image/jpeg') ? s.blob : await toJpeg(s.blob);
+    const r = await fetchT(d.url + '/upload', { method:'POST', body: s.jpg,
+      headers:{ 'Content-Type':'image/jpeg', 'X-Token': cfg.token, 'X-Session': d.sid, 'X-Panel': s.cell || '' } }, 90000);
+    const j = await r.json();
+    if(j.ok){ s.dst = 'ok'; s.dname = j.name; } else { s.dst = 'fail'; s.derr = j.error || ('HTTP ' + r.status); }
+  }catch(e){ s.dst = 'fail'; s.derr = e.name === 'AbortError' ? '시간 초과' : e.message; }
+}
+function directQueue(d, s){   // 한 장씩 차례로 (찍는 동안 휴대폰 회선을 나눠 쓰지 않게)
+  s.dst = 'wait';
+  d.chain = d.chain.then(() => directUpOne(d, s)).then(() => { if(cam && cam.direct === d) camInfo(); });
+}
+async function directSend(job, cell, statCell, shots, d){
+  const code = job['작업코드'], btn = cell.querySelector('button.btn'), stat = statCell.querySelector('.stat');
+  btn.disabled = true; uploading[code] = true; delete photoErr[code];
+  const prev = stat.innerHTML;
+  const chip = t => { stat.innerHTML = `<span class="chip"><span class="st 실행중">${t}</span></span>` + prev; };
+  const t0 = Date.now();
+  try{
+    chip('직통 전송 마무리…');
+    await d.chain;
+    for(const s of shots.filter(s => s.dst !== 'ok')){ chip('직통 다시 보내기…'); await directUpOne(d, s); }   // 실패분 한 번 더
+    const left = shots.filter(s => s.dst !== 'ok'), okN = shots.length - left.length;
+    let finished = false;
+    if(okN){
+      try{
+        const r = await fetchT(d.url + '/finish', { method:'POST', body:'{}', headers:{ 'Content-Type':'text/plain', 'X-Token': cfg.token, 'X-Session': d.sid } }, 20000);
+        const j = await r.json(); finished = !!j.ok; if(!j.ok) photoErr[code] = '직통 마무리 실패: ' + (j.error || '');
+      }catch(e){ photoErr[code] = '직통 마무리 실패: ' + e.message; }
+    }
+    if(left.length || !finished){
+      // 직통 못 한 사진은 드라이브로 → STOCK_AI. 직통으로 이미 PC 에 간 사진도 마무리가 안 됐으면 STOCK_AI 가 시트 목록에서 이어 받는다
+      toast(left.length ? `직통 실패 ${left.length}장 — 드라이브로 보냅니다 (${left[0].derr || ''})` : '직통 마무리 실패 — PC 러너 판독으로 넘깁니다');
+      delete uploading[code]; btn.disabled = false; stat.innerHTML = prev;
+      if(left.length) await uploadStockPhotos(job, cell, statCell, left);
+      else { await enqueueAI(); refreshStatus(); }
+      return;
+    }
+    toast(`${okN}장 직통 전송 완료 — PC 가 마무리 판독 중`);
+    for(let guard = 0; guard < 400; guard++){   // 3초 간격, 최대 20분
+      await new Promise(r => setTimeout(r, 3000));
+      let j = null;
+      try{ const r = await fetchT(d.url + '/status?session=' + encodeURIComponent(d.sid), { headers:{ 'X-Token': cfg.token } }, 15000); j = await r.json(); }catch(_){ j = null; }
+      const sec = Math.round((Date.now() - t0) / 1000);
+      if(!j){ chip(`직통 판독 확인 중… ${sec}초`); continue; }
+      if(!j.ok){ photoErr[code] = '직통: ' + (j.error || ''); break; }
+      if(j.stage === '완료'){
+        const n = (j.result && j.result.n) || {};
+        toast(`직통 판독 완료 (SEND 후 ${sec}초) — 빈칸 ${n.empty || 0} / 있음 ${n.filled || 0} / 불확실 ${n.unsure || 0}`);
+        break;
+      }
+      if(String(j.stage || '').startsWith('실패')){ photoErr[code] = '직통 ' + j.stage + ' — A_2 로 다시 판독하세요'; toast(photoErr[code]); break; }
+      chip(`직통 ${j.stage || ''} ${j.done || 0}/${j.photos || 0} · ${sec}초`);
+    }
+  }finally{
+    delete uploading[code]; btn.disabled = false; refreshStatus();
+  }
 }
 
 const STOCK_AI_CODE = 'STOCK_AI';
