@@ -126,6 +126,7 @@
   #cam .side { position:relative; width:96px; flex:none; background:#0b0f19; display:flex; align-items:center; justify-content:center; }
   #cam .shutter { width:66px; height:66px; border-radius:50%; border:5px solid #fff; background:rgba(255,255,255,.35); cursor:pointer; padding:0; }
   #cam .shutter:active { background:#fff; }
+  #cam .shutter.busy { background:rgba(255,255,255,.85); opacity:.6; }   /* 원본 촬영 중 — 끝나면 바로 다음 촬영 */
   #cam .swap { position:absolute; top:6px; right:6px; width:28px; height:22px; border:0; border-radius:6px; background:rgba(255,255,255,.18); color:#e5e7eb; font-size:14px; line-height:22px; cursor:pointer; padding:0; }
   #cam.rev .swap { right:auto; left:6px; }
   #cam .pad { flex:none; width:118px; background:#111827; display:flex; flex-direction:column; padding:6px 6px; padding-bottom:max(6px, env(safe-area-inset-bottom)); }
@@ -490,29 +491,83 @@ function camInfo(){
   document.getElementById('camInfo').textContent = (cam.cur ? `매대 ${cam.cur}: ${n}장 (${MIN_SHOTS}장 이상)` : '매대를 누르고 찍으세요') + ` · 전체 ${total}장` + dt;
   document.getElementById('camSend').textContent = total ? `SEND  (${total}장)` : 'SEND';
 }
+// 2026-10-22 사장님 지시 "카메라 반응이 너무 느리다":
+//   ① 셔터를 누르면 바로 번쩍·진동하고, 원본 촬영(takePhoto)이 끝나면 곧바로 다음 촬영 가능
+//   ② 선명도 검사·직통 전송은 뒤에서 따로(별도 일꾼 Worker) — 화면이 멈추지 않음. 흐린 사진은 검사 뒤 빠지고 알림
+//   ③ 촬영 중에 또 누르면 무시(전에는 겹쳐 눌리면 저화질 동영상 프레임으로 저장되던 문제)
+let _sharpWorker = null;
+function sharpnessAsync(blob){
+  try{
+    if(!window.Worker || typeof OffscreenCanvas === 'undefined') return sharpness(blob);
+    if(!_sharpWorker){
+      const src = `self.onmessage = async e => { const { id, blob } = e.data; let v = -1;
+        try{
+          const bm = await createImageBitmap(blob); let w = bm.width, h = bm.height, cw = w, ch = h;
+          if(w * h > 16e6){ cw = Math.round(w / 2); ch = Math.round(h / 2); }
+          const c = new OffscreenCanvas(cw, ch); const x = c.getContext('2d', { willReadFrequently:true });
+          x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.drawImage(bm, 0, 0, cw, ch); bm.close && bm.close();
+          const d = x.getImageData(0, 0, cw, ch).data;
+          const k = Math.max(1, Math.round(Math.max(cw, ch) / 1000)), tw = Math.floor(cw / k), th = Math.floor(ch / k);
+          if(tw >= 3 && th >= 3){
+            const g = new Float32Array(tw * th), kk = k * k;
+            for(let y = 0; y < th * k; y++){ const gy = Math.floor(y / k) * tw; let j = (y * cw) * 4;
+              for(let xx = 0; xx < tw * k; xx++, j += 4) g[gy + Math.floor(xx / k)] += 0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2]; }
+            for(let i = 0; i < g.length; i++) g[i] /= kk;
+            let n = 0, sum = 0, sq = 0;
+            for(let y = 1; y < th - 1; y++) for(let xx = 1; xx < tw - 1; xx++){ const i = y * tw + xx, q = g[i - tw] + g[i + tw] + g[i - 1] + g[i + 1] - 4 * g[i]; sum += q; sq += q * q; n++; }
+            if(n){ const m = sum / n; v = sq / n - m * m; }
+          }
+        }catch(_){ v = -1; }
+        self.postMessage({ id, v }); };`;
+      _sharpWorker = new Worker(URL.createObjectURL(new Blob([src], { type:'text/javascript' })));
+      _sharpWorker._n = 0; _sharpWorker._cb = {};
+      _sharpWorker.onmessage = e => { const cb = _sharpWorker._cb[e.data.id]; delete _sharpWorker._cb[e.data.id]; cb && cb(e.data.v); };
+      _sharpWorker.onerror = () => { _sharpWorker = null; };
+    }
+    const w = _sharpWorker, id = ++w._n;
+    return new Promise(res => { w._cb[id] = res; w.postMessage({ id, blob }); setTimeout(() => { if(w._cb[id]){ delete w._cb[id]; res(-1); } }, 20000); });
+  }catch(_){ return sharpness(blob); }
+}
 async function camShoot(){
   if(!cam || !cam.stream) return;
+  const me = cam, btn = document.getElementById('camShot');
+  if(me.capturing){ try{ navigator.vibrate && navigator.vibrate(15); }catch(_){} return; }   // 앞 사진을 찍는 중
   const v = document.getElementById('camVideo'), f = document.getElementById('camFlash');
   f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 120);
+  try{ navigator.vibrate && navigator.vibrate(30); }catch(_){}
+  me.capturing = true; btn.classList.add('busy');
   let blob = null;
-  if(cam.ic){ try{ blob = await cam.ic.takePhoto(); }catch(_){ blob = null; } }
-  if(!blob){
-    const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
-    if(!c.width){ toast('카메라 준비 중입니다. 잠시 뒤 다시 누르세요'); return; }
-    c.getContext('2d').drawImage(v, 0, 0);
-    blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
-  }
-  const sc = await sharpness(blob);
-  if(sc >= 0 && sc < BLUR_MIN){
-    cam.blur = (cam.blur || 0) + 1;
-    try{ navigator.vibrate && navigator.vibrate([80, 60, 80]); }catch(_){}
-    if(cam.blur < 3){ toast(`흐려서 버렸습니다 (선명도 ${Math.round(sc)}) — 다시 찍어 주세요`); return; }
-    toast(`흐림 의심이지만 보관합니다 (${Math.round(sc)}) — PC 판독에서 다시 거릅니다`);
-  } else cam.blur = 0;
-  const shot = { blob, mime: blob.type || 'image/jpeg', cell: cam.cur, sharp: sc };
-  cam.shots.push(shot);
-  if(cam.direct) directQueue(cam.direct, shot);
-  camRenderKeys(); camInfo();
+  try{
+    if(me.ic){ try{ blob = await me.ic.takePhoto(); }catch(_){ blob = null; } }
+    if(!blob){
+      const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+      if(!c.width){ toast('카메라 준비 중입니다. 잠시 뒤 다시 누르세요'); return; }
+      c.getContext('2d').drawImage(v, 0, 0);
+      blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+    }
+  } finally { me.capturing = false; btn.classList.remove('busy'); }
+  if(!blob || cam !== me) return;
+  const shot = { blob, mime: blob.type || 'image/jpeg', cell: me.cur, sharp: null, checking: true };
+  me.shots.push(shot); camRenderKeys(); camInfo();
+  // 뒤에서: 선명도 검사 → 흐리면 빼고 알림, 아니면 직통 전송 대기열로
+  const task = (async () => {
+    const sc = await sharpnessAsync(blob);
+    shot.sharp = sc; shot.checking = false;
+    if(sc >= 0 && sc < BLUR_MIN){
+      me.blur = (me.blur || 0) + 1;
+      if(me.blur < 3){
+        const i = me.shots.indexOf(shot); if(i >= 0) me.shots.splice(i, 1);
+        try{ navigator.vibrate && navigator.vibrate([80, 60, 80]); }catch(_){}
+        if(cam === me) toast(`방금 사진이 흐려서 버렸습니다 (선명도 ${Math.round(sc)}) — 다시 찍어 주세요`);
+        if(cam === me){ camRenderKeys(); camInfo(); }
+        return;
+      }
+      if(cam === me) toast(`흐림 의심이지만 보관합니다 (${Math.round(sc)}) — PC 판독에서 다시 거릅니다`);
+    } else me.blur = 0;
+    if(me.direct) directQueue(me.direct, shot);
+    if(cam === me) camInfo();
+  })();
+  (me.tasks = me.tasks || []).push(task);
 }
 document.getElementById('camShot').onclick = camShoot;
 document.getElementById('camClose').onclick = () => {
@@ -522,6 +577,11 @@ document.getElementById('camClose').onclick = () => {
 };
 document.getElementById('camSend').onclick = async () => {
   if(!cam) return;
+  if(cam.capturing || (cam.tasks && cam.tasks.length)){   // 뒤에서 하던 촬영·선명도 검사가 끝나야 보낼 목록이 확정됨
+    const me = cam; toast('사진 정리 중… 잠시만요');
+    while(me.capturing) await new Promise(r => setTimeout(r, 100));
+    await Promise.all(me.tasks || []); if(cam !== me) return;
+  }
   if(!cam.shots.length){ toast('찍은 사진이 없습니다'); return; }
   const short = PANELS.filter(p => { const n = cam.shots.filter(s => s.cell === p).length; return n && n < MIN_SHOTS; });
   if(short.length && !confirm(`매대 ${short.join(', ')} 은 ${MIN_SHOTS}장이 안 됩니다. 그래도 전송할까요?`)) return;
