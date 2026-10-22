@@ -129,7 +129,7 @@
   #cam .swap { position:absolute; top:6px; right:6px; width:28px; height:22px; border:0; border-radius:6px; background:rgba(255,255,255,.18); color:#e5e7eb; font-size:14px; line-height:22px; cursor:pointer; padding:0; }
   #cam.rev .swap { right:auto; left:6px; }
   #cam .pad { flex:none; width:118px; background:#111827; display:flex; flex-direction:column; padding:6px 6px; padding-bottom:max(6px, env(safe-area-inset-bottom)); }
-  #cam .keys { flex:1; min-height:0; display:grid; grid-template-columns:repeat(2, 1fr); grid-template-rows:repeat(10, 1fr); grid-auto-flow:row; gap:4px; margin-bottom:5px; }
+  #cam .keys { flex:1; min-height:0; display:grid; grid-template-columns:1fr; grid-template-rows:repeat(10, 1fr); grid-auto-flow:row; gap:4px; margin-bottom:5px; }
   #cam .key { position:relative; height:auto; min-height:0; border:0; border-radius:6px; background:#2b3140; color:#6b7280; font-size:15px; font-weight:700; cursor:pointer; padding:0; }
   #cam .key.on { background:#fde047; color:#111827; }                       /* 불 켜진 알파벳 = 이번에 찍어야 할 매대 */
   #cam .key.cur { outline:3px solid #fff; outline-offset:-3px; }            /* 지금 찍는 중인 매대 */
@@ -142,7 +142,7 @@
     #cam, #cam.rev { flex-direction:column; }
     #cam .view { order:1; }
     #cam .pad { order:2; width:auto; padding:8px 8px 10px; padding-bottom:max(10px, env(safe-area-inset-bottom)); }
-    #cam .keys { flex:none; grid-template-columns:repeat(10, 1fr); grid-template-rows:repeat(2, 1fr); grid-auto-flow:column; gap:5px; margin-bottom:6px; }
+    #cam .keys { flex:none; grid-template-columns:repeat(10, 1fr); grid-template-rows:1fr; grid-auto-flow:column; gap:5px; margin-bottom:6px; }
     #cam .key { height:42px; }
     #cam .send { height:46px; font-size:16px; letter-spacing:2px; }
     #cam .side { position:absolute; left:0; right:0; bottom:calc(8px + 42px*2 + 5px + 6px + 46px + max(10px, env(safe-area-inset-bottom))); width:auto; height:0; background:transparent; overflow:visible; z-index:2; }
@@ -392,8 +392,10 @@ function pickPhoto(job, cell, statCell){
 //   알파벳 누르고 3장 이상 연속 촬영(원하는 만큼) → 다음 알파벳 … → SEND → 찍은 사진 전부 순차 업로드 → STOCK_AI 등록
 //   사진 파일명에 매대 글자가 붙는다(재고체크_날짜_시각_A.jpg) → PC 판독이 그 매대 라벨만 믿도록 쓸 수 있음
 //   카메라를 못 열면(권한 거부·PC 등) 사진첩 선택(shootPhoto)으로 대신
-const PANELS = 'ABCDEFGHIJKLMNOPQRST'.split('');
-const MIN_SHOTS = 3;
+// 2026-10-22 사장님 지시: 위아래 두 매대를 한 묶음(AB CD … ST)으로 5장 안팎 연속 촬영 — 위 매대 아랫부분과 아래 매대 윗부분이 겹쳐 찍히므로
+//   묶음 글자는 파일명에만 붙고, PC 판독은 사진 속 라벨로 매대를 스스로 판단한다(버튼을 잘못 눌러도 사진이 버려지지 않음)
+const PANELS = ['AB', 'CD', 'EF', 'GH', 'IJ', 'KL', 'MN', 'OP', 'QR', 'ST'];
+const MIN_SHOTS = 5;
 // 흐린 사진은 찍는 자리에서 바로 버린다 (2026-10-16 사장님 제안: 뭉개진 사진은 판독 전에 삭제)
 //   선명도 = 긴 변 ≈1000px 로 상자 평균 축소한 흑백의 라플라시안 분산(PC stock_ai.py 와 같은 계산, 오차 0.5% 이내).
 //   10/16 매대 사진 11장 1460~3460, 책상 시험샷 ≈230, 가우시안 σ3(글자 안 읽힘) 294, 흔들림 15px(안 읽힘) 748,
@@ -472,10 +474,10 @@ async function openCamera(job, cell, statCell){
 function camStop(){ try{ cam && cam.stream && cam.stream.getTracks().forEach(t => t.stop()); }catch(_){} const v = document.getElementById('camVideo'); if(v) v.srcObject = null; camUnlock(); }
 function camRenderKeys(){
   const k = document.getElementById('camKeys'); if(!cam) return;
-  const lit = new Set((guidePanels || []).map(p => String(p).toUpperCase()));
+  const lit = new Set((guidePanels || []).map(p => String(p).toUpperCase()));   // 안내 매대 글자가 하나라도 들어 있는 묶음에 불
   k.innerHTML = PANELS.map(p => {
     const n = cam.shots.filter(s => s.cell === p).length;
-    return `<button type="button" class="key${lit.has(p) ? ' on' : ''}${cam.cur === p ? ' cur' : ''}" data-p="${p}">${p}${n ? `<span class="n${n >= MIN_SHOTS ? ' ok' : ''}">${n}</span>` : ''}</button>`;
+    return `<button type="button" class="key${[...p].some(ch => lit.has(ch)) ? ' on' : ''}${cam.cur === p ? ' cur' : ''}" data-p="${p}">${p}${n ? `<span class="n${n >= MIN_SHOTS ? ' ok' : ''}">${n}</span>` : ''}</button>`;
   }).join('');
   k.querySelectorAll('.key').forEach(b => b.onclick = () => { cam.cur = b.dataset.p; camRenderKeys(); camInfo(); });
 }
@@ -485,7 +487,7 @@ function camInfo(){
   let dt = '';
   if(cam.direct){ const ok = cam.shots.filter(s => s.dst === 'ok').length, bad = cam.shots.filter(s => s.dst === 'fail').length;
     dt = ` · PC ${ok}/${total}` + (bad ? ` (실패 ${bad})` : ''); }
-  document.getElementById('camInfo').textContent = (cam.cur ? `매대 ${cam.cur}: ${n}장 (3장 이상)` : '매대를 누르고 찍으세요') + ` · 전체 ${total}장` + dt;
+  document.getElementById('camInfo').textContent = (cam.cur ? `매대 ${cam.cur}: ${n}장 (${MIN_SHOTS}장 이상)` : '매대를 누르고 찍으세요') + ` · 전체 ${total}장` + dt;
   document.getElementById('camSend').textContent = total ? `SEND  (${total}장)` : 'SEND';
 }
 async function camShoot(){
