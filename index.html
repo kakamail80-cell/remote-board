@@ -488,7 +488,9 @@ function camInfo(){
   let dt = '';
   if(cam.direct){ const ok = cam.shots.filter(s => s.dst === 'ok').length, bad = cam.shots.filter(s => s.dst === 'fail').length;
     dt = ` · PC ${ok}/${total}` + (bad ? ` (실패 ${bad})` : ''); }
-  document.getElementById('camInfo').textContent = (cam.cur ? `매대 ${cam.cur}: ${n}장 (${MIN_SHOTS}장 이상)` : '매대를 누르고 찍으세요') + ` · 전체 ${total}장` + dt;
+  const pend = cam.shots.filter(s => s.pending).length;
+  const cap = (pend ? ` · 촬영 중 ${pend}` : '') + (cam.lastCapMs ? ` · 촬영 ${(cam.lastCapMs / 1000).toFixed(1)}초` : '');
+  document.getElementById('camInfo').textContent = (cam.cur ? `매대 ${cam.cur}: ${n}장 (${MIN_SHOTS}장 이상)` : '매대를 누르고 찍으세요') + ` · 전체 ${total}장` + cap + dt;
   document.getElementById('camSend').textContent = total ? `SEND  (${total}장)` : 'SEND';
 }
 // 2026-10-22 사장님 지시 "카메라 반응이 너무 느리다":
@@ -528,27 +530,39 @@ function sharpnessAsync(blob){
     return new Promise(res => { w._cb[id] = res; w.postMessage({ id, blob }); setTimeout(() => { if(w._cb[id]){ delete w._cb[id]; res(-1); } }, 20000); });
   }catch(_){ return sharpness(blob); }
 }
-async function camShoot(){
-  if(!cam || !cam.stream) return;
-  const me = cam, btn = document.getElementById('camShot');
-  if(me.capturing){ try{ navigator.vibrate && navigator.vibrate(15); }catch(_){} return; }   // 앞 사진을 찍는 중
-  const v = document.getElementById('camVideo'), f = document.getElementById('camFlash');
-  f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 120);
-  try{ navigator.vibrate && navigator.vibrate(30); }catch(_){}
+// 2026-10-26 사장님 지시 "찍을 때 딜레이가 심해 헷갈린다":
+//   ① 셔터를 누르면 그 자리에서 장수가 올라가고(자리 먼저 확보), 원본 촬영은 뒤에서 차례로 진행 — 눌렀는데 반응 없는 느낌 제거
+//   ② 촬영 중에 또 눌러도 버리지 않고 줄 세워 차례로 찍는다 (최대 4장 대기). 누른 순간의 매대 글자가 그 사진에 붙는다
+//   ③ 원본 촬영은 최대 해상도를 명시해 요청(getPhotoCapabilities) — 기기가 미리보기 크기로 줄여 찍는 것 방지
+//   ④ 마지막 촬영에 걸린 시간을 안내줄에 표시 — 기기별 실측용
+const CAP_QUEUE_MAX = 4;
+async function camCaptureOne(me, shot){
+  const v = document.getElementById('camVideo'), btn = document.getElementById('camShot');
   me.capturing = true; btn.classList.add('busy');
-  let blob = null;
+  const t0 = performance.now(); let blob = null;
   try{
-    if(me.ic){ try{ blob = await me.ic.takePhoto(); }catch(_){ blob = null; } }
+    if(me.ic){
+      if(me.photoOpt === undefined){   // 첫 촬영 때 한 번: 기기 최대 사진 크기
+        me.photoOpt = null;
+        try{ const c = await me.ic.getPhotoCapabilities();
+          if(c && c.imageWidth && c.imageHeight) me.photoOpt = { imageWidth: c.imageWidth.max, imageHeight: c.imageHeight.max }; }catch(_){}
+      }
+      if(me.photoOpt){ try{ blob = await me.ic.takePhoto(me.photoOpt); }catch(_){ blob = null; } }
+      if(!blob){ try{ blob = await me.ic.takePhoto(); }catch(_){ blob = null; } }
+    }
     if(!blob){
       const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
-      if(!c.width){ toast('카메라 준비 중입니다. 잠시 뒤 다시 누르세요'); return; }
-      c.getContext('2d').drawImage(v, 0, 0);
-      blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+      if(c.width){ c.getContext('2d').drawImage(v, 0, 0); blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92)); c.width = c.height = 1; }
     }
   } finally { me.capturing = false; btn.classList.remove('busy'); }
-  if(!blob || cam !== me) return;
-  const shot = { blob, mime: blob.type || 'image/jpeg', cell: me.cur, sharp: null, checking: true };
-  me.shots.push(shot); camRenderKeys(); camInfo();
+  me.lastCapMs = Math.round(performance.now() - t0);
+  if(!blob){
+    const i = me.shots.indexOf(shot); if(i >= 0) me.shots.splice(i, 1);
+    if(cam === me){ toast('카메라 준비 중입니다. 잠시 뒤 다시 누르세요'); camRenderKeys(); camInfo(); }
+    return;
+  }
+  shot.blob = blob; shot.mime = blob.type || 'image/jpeg'; shot.pending = false;
+  if(cam === me) camInfo();
   // 뒤에서: 선명도 검사 → 흐리면 빼고 알림, 아니면 직통 전송 대기열로
   const task = (async () => {
     const sc = await sharpnessAsync(blob);
@@ -569,6 +583,17 @@ async function camShoot(){
   })();
   (me.tasks = me.tasks || []).push(task);
 }
+function camShoot(){
+  if(!cam || !cam.stream) return;
+  const me = cam, f = document.getElementById('camFlash');
+  const waiting = me.shots.filter(s => s.pending).length;
+  if(waiting >= CAP_QUEUE_MAX){ try{ navigator.vibrate && navigator.vibrate([15, 40, 15]); }catch(_){} toast('촬영이 밀려 있습니다 — 잠시만요'); return; }
+  f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 120);
+  try{ navigator.vibrate && navigator.vibrate(30); }catch(_){}
+  const shot = { blob:null, mime:'image/jpeg', cell: me.cur, sharp:null, checking:true, pending:true };
+  me.shots.push(shot); camRenderKeys(); camInfo();           // 누른 즉시 장수 반영
+  me.capChain = (me.capChain || Promise.resolve()).then(() => camCaptureOne(me, shot)).catch(() => {});
+}
 document.getElementById('camShot').onclick = camShoot;
 document.getElementById('camClose').onclick = () => {
   if(!cam) return;
@@ -577,9 +602,10 @@ document.getElementById('camClose').onclick = () => {
 };
 document.getElementById('camSend').onclick = async () => {
   if(!cam) return;
-  if(cam.capturing || (cam.tasks && cam.tasks.length)){   // 뒤에서 하던 촬영·선명도 검사가 끝나야 보낼 목록이 확정됨
+  if(cam.capturing || cam.shots.some(s => s.pending) || (cam.tasks && cam.tasks.length)){   // 뒤에서 하던 촬영·선명도 검사가 끝나야 보낼 목록이 확정됨
     const me = cam; toast('사진 정리 중… 잠시만요');
-    while(me.capturing) await new Promise(r => setTimeout(r, 100));
+    try{ await (me.capChain || Promise.resolve()); }catch(_){}
+    while(me.capturing || me.shots.some(s => s.pending)) await new Promise(r => setTimeout(r, 100));
     await Promise.all(me.tasks || []); if(cam !== me) return;
   }
   if(!cam.shots.length){ toast('찍은 사진이 없습니다'); return; }
