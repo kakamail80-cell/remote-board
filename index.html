@@ -238,7 +238,7 @@ let cfg = JSON.parse(localStorage.getItem(LS) || 'null');
 let timer = null;
 let mine = []; try { mine = JSON.parse(sessionStorage.getItem(MINE) || '[]'); } catch(_) {}   // 이 화면에서 누른 작업 ID
 
-function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
+function toast(m, ms){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'), ms||2500); }
 function openSetup(){ document.getElementById('setup').style.display='block'; document.getElementById('board').style.display='none';
   if(cfg){ cfgUrl.value=cfg.url; cfgToken.value=cfg.token; } }
 function saveSetup(){ cfg={url:cfgUrl.value.trim(), token:cfgToken.value.trim()}; localStorage.setItem(LS, JSON.stringify(cfg)); init(); }
@@ -306,15 +306,16 @@ function renderJobs(jobs){
         const isRange = par==='기간', isPhoto = par==='사진';
         // 하위 항목: '하위'(일반 실행) / '하위사진'(촬영 가이드 → 사진첩) / '하위목업'(버튼만, 아직 연결 안 됨)  — 2026-10-12
         const isSub = par.startsWith('하위'), isShoot = par==='하위사진' || par==='그룹사진', isMock = par==='하위목업';
+        const isTitle = par==='제목';   // 2026-10-27: 버튼 없는 제목 줄 (예: A_재고체크 — 아래 A_1~A_4 가 하위)
         if(isRange){ paramHtml = `<span class="seg" data-k="range"><button type="button" data-v="today" class="on">오늘</button><button type="button" data-v="week">일주일</button></span>`; }
         else if(j['파라미터']==='텍스트'){ paramHtml = `<input type="text" data-k="text" placeholder="${esc(j['설명']||'')}">`; }
         const L = document.createElement('div'); L.className = 'L' + last;
         const desc = (!isRange && j['설명']) ? `<div class="desc">${esc(j['설명'])}</div>` : '';
-        L.innerHTML = `<div class="job${paramHtml?' haspar':''}${isSub?' sub':''}"><div class="name">${esc(j['버튼이름'])}${desc}</div><div class="ctl">${paramHtml}<button class="btn">적용</button></div></div>`;
+        L.innerHTML = `<div class="job${paramHtml?' haspar':''}${isSub?' sub':''}"><div class="name">${esc(j['버튼이름'])}${desc}</div><div class="ctl">${paramHtml}${isTitle?'':'<button class="btn">적용</button>'}</div></div>`;
         L.querySelectorAll('.seg button').forEach(b => b.onclick = () => { b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
         const R = document.createElement('div'); R.className = 'R' + last;
         R.innerHTML = `<div class="job stat" data-code="${esc(j['작업코드'])}"></div>`;
-        L.querySelector('button.btn').onclick = () => isPhoto ? pickPhoto(j, L, R) : isShoot ? openCamera(j, L, R) : isMock ? toast(`'${j['버튼이름']}' 은 아직 사람이 하는 작업입니다 (버튼만 준비, 연결 예정)`) : run(j, L);
+        if(!isTitle) L.querySelector('button.btn').onclick = () => isPhoto ? pickPhoto(j, L, R) : isShoot ? openCamera(j, L, R) : isMock ? toast(`'${j['버튼이름']}' 은 아직 사람이 하는 작업입니다 (버튼만 준비, 연결 예정)`) : run(j, L);
         box.appendChild(L); box.appendChild(R);
       });
     });
@@ -396,7 +397,7 @@ function pickPhoto(job, cell, statCell){
 // 2026-10-22 사장님 지시: 위아래 두 매대를 한 묶음(AB CD … ST)으로 5장 안팎 연속 촬영 — 위 매대 아랫부분과 아래 매대 윗부분이 겹쳐 찍히므로
 //   묶음 글자는 파일명에만 붙고, PC 판독은 사진 속 라벨로 매대를 스스로 판단한다(버튼을 잘못 눌러도 사진이 버려지지 않음)
 const PANELS = ['AB', 'CD', 'EF', 'GH', 'IJ', 'KL', 'MN', 'OP', 'QR', 'ST'];
-const MIN_SHOTS = 5;
+const MIN_SHOTS = 4;   // 2026-10-27 사장님: 묶음당 4장(5번째는 겹침이 많아 애매) → 10묶음 40장
 // 흐린 사진은 찍는 자리에서 바로 버린다 (2026-10-16 사장님 제안: 뭉개진 사진은 판독 전에 삭제)
 //   선명도 = 긴 변 ≈1000px 로 상자 평균 축소한 흑백의 라플라시안 분산(PC stock_ai.py 와 같은 계산, 오차 0.5% 이내).
 //   10/16 매대 사진 11장 1460~3460, 책상 시험샷 ≈230, 가우시안 σ3(글자 안 읽힘) 294, 흔들림 15px(안 읽힘) 748,
@@ -741,7 +742,7 @@ async function directSend(job, cell, statCell, shots, d){
       else { await enqueueAI(); refreshStatus(); }
       return;
     }
-    toast(`${okN}장 직통 전송 완료 — PC 가 마무리 판독 중`);
+    toast(`${okN}장 직통 전송 완료 — PC 가 라벨 위치 파악 중`);
     for(let guard = 0; guard < 400; guard++){   // 3초 간격, 최대 20분
       await new Promise(r => setTimeout(r, 3000));
       let j = null;
@@ -751,10 +752,12 @@ async function directSend(job, cell, statCell, shots, d){
       if(!j.ok){ photoErr[code] = '직통: ' + (j.error || ''); break; }
       if(j.stage === '완료'){
         const n = (j.result && j.result.n) || {};
-        toast(`직통 판독 완료 (SEND 후 ${sec}초) — 빈칸 ${n.empty || 0} / 있음 ${n.filled || 0} / 불확실 ${n.unsure || 0}`);
+        // 2026-10-27 사장님 확정 흐름: 사진 서버는 위치만 파악하고 멈춤 → 판정은 A_3 「파일 판독」 버튼 (result.hint 에 안내문)
+        if(j.result && j.result.hint) toast(`사진 ${j.photos || 0}장 위치 파악 완료 (SEND 후 ${sec}초) — ${j.result.hint}`, 6000);
+        else toast(`직통 판독 완료 (SEND 후 ${sec}초) — 빈칸 ${n.empty || 0} / 있음 ${n.filled || 0} / 불확실 ${n.unsure || 0}`);
         break;
       }
-      if(String(j.stage || '').startsWith('실패')){ photoErr[code] = '직통 ' + j.stage + ' — A_2 로 다시 판독하세요'; toast(photoErr[code]); break; }
+      if(String(j.stage || '').startsWith('실패')){ photoErr[code] = '직통 ' + j.stage + ' — 사진을 다시 찍어 보내 주세요'; toast(photoErr[code]); break; }
       chip(`직통 ${j.stage || ''} ${j.done || 0}/${j.photos || 0} · ${sec}초`);
     }
   }finally{
@@ -764,11 +767,8 @@ async function directSend(job, cell, statCell, shots, d){
 
 const STOCK_AI_CODE = 'STOCK_AI';
 async function enqueueAI(){
-  try{
-    const res = await api({}, { action:'enqueue', code: STOCK_AI_CODE, params:{} });
-    if(res.ok){ mine.push(res.id); sessionStorage.setItem(MINE, JSON.stringify(mine)); toast('AI 판독 요청 등록 — PC 러너가 곧 처리합니다 (「AI 빈칸 판독」 줄 참고)'); }
-    else toast('AI 판독 요청 실패: ' + (res.error || ''));
-  }catch(e){ toast('AI 판독 요청 실패: ' + e.message); }
+  // 2026-10-27 사장님 확정 흐름: 업로드 뒤 자동 판독 없음 — 사진은 드라이브로 PC 에 내려가고, 판독은 A_3 「파일 판독」 버튼으로 (STOCK_AI 자동 등록 폐지)
+  toast('사진을 드라이브로 올렸습니다 — 재고체크 파일을 만든 뒤 A_3 「파일 판독」을 누르면 판독합니다', 6000);
 }
 
 // {action:'aiNext'} 를 done 이 될 때까지 반복. 칩에 "AI 판독 n/N" 진행 표시, 끝나면 빈칸 합계 토스트
